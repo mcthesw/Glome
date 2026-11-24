@@ -1,0 +1,47 @@
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(rgba8, set = 0, binding = 0) uniform writeonly image2D output_image;
+struct Triangle {
+    vec4 plane, dual0, dual1, dual2;
+    vec4 inv_k_material, uv01, uv2;
+    vec4 n0, n1, n2;
+};
+struct CapNode { vec4 center; vec4 bounds; };
+struct Diagnostic { vec4 p, d; ivec2 ids; float angle, u, v, pad0, pad1, pad2; };
+layout(std430, set = 0, binding = 1) readonly buffer Faces { Triangle tris[]; };
+layout(std430, set = 0, binding = 2) readonly buffer Tree { CapNode nodes[]; };
+struct MaterialRecord {
+    vec4 base_color, emission_roughness;
+    float metallic, alpha_cutoff;
+    uint albedo_ref, flags;
+};
+layout(std430, set = 0, binding = 3) readonly buffer Materials { MaterialRecord material_records[]; };
+layout(std430, set = 0, binding = 4) buffer Diagnostics { Diagnostic probes[]; };
+struct LightRecord { vec4 source, radiance_cutoff; };
+layout(std430, set = 0, binding = 5) readonly buffer Lights {
+    uvec4 light_counts;
+    LightRecord lights[];
+};
+layout(std140, set = 0, binding = 6) uniform Environment {
+    vec4 background, ambient_energy, fog_density;
+    ivec4 mode_ground_mat;
+    vec4 ground_uv_xform;
+} env;
+layout(set = 0, binding = 7) uniform texture2DArray bank0;
+layout(set = 0, binding = 8) uniform texture2DArray bank1;
+layout(set = 0, binding = 9) uniform texture2DArray bank2;
+layout(set = 0, binding = 10) uniform texture2DArray bank3;
+layout(set = 0, binding = 11) uniform sampler nearest_repeat;
+layout(set = 0, binding = 12) uniform sampler linear_repeat;
+layout(set = 0, binding = 13) uniform sampler nearest_clamp;
+layout(set = 0, binding = 14) uniform sampler linear_clamp;
+
+layout(push_constant, std430) uniform Camera {
+    vec4 right, up, back, pos;
+    vec4 lens;  // radius in metres, tan(vertical FOV/2), seconds, reserved
+    ivec4 dims; // width, height, node count, diagnostic ray count
+} camera;
+
+const float PI = 3.14159265359;
+const float TAU = 6.28318530718;
+const float RAY_MIN = 0.00001;
+struct Hit { int kind, id; float t; vec2 uv; vec3 weights; };

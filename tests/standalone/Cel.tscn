@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://addons/glome/Examples/Minimal.tscn" id="1"]
+[ext_resource type="Script" path="res://addons/glome/Rendering/S3RenderProgram.cs" id="2"]
+[ext_resource type="RDShaderFile" path="res://cel.glsl" id="3"]
+
+[sub_resource type="Resource" id="Program"]
+script = ExtResource("2")
+Shader = ExtResource("3")
+
+[node name="CelGallery" instance=ExtResource("1")]
+RenderProgram = SubResource("Program")

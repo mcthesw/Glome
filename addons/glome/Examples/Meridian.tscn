@@ -1,0 +1,49 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://addons/glome/Runtime/S3Anchor3D.cs" id="1"]
+
+[sub_resource type="StandardMaterial3D" id="Ceramic"]
+albedo_color = Color(0.26, 0.48, 0.51, 1)
+roughness = 0.47
+
+[sub_resource type="StandardMaterial3D" id="Cap"]
+albedo_color = Color(0.91, 0.79, 0.58, 1)
+roughness = 0.65
+
+[sub_resource type="BoxMesh" id="Pier"]
+material = SubResource("Ceramic")
+size = Vector3(0.56, 2.82, 0.72)
+
+[sub_resource type="BoxMesh" id="Lintel"]
+material = SubResource("Cap")
+size = Vector3(3.16, 0.36, 0.92)
+
+[sub_resource type="BoxShape3D" id="PierShape"]
+size = Vector3(0.56, 2.82, 0.72)
+
+[node name="Meridian" type="Node3D"]
+script = ExtResource("1")
+
+[node name="West" type="MeshInstance3D" parent="."]
+position = Vector3(-1.20, 1.41, 0)
+mesh = SubResource("Pier")
+
+[node name="East" type="MeshInstance3D" parent="."]
+position = Vector3(1.20, 1.41, 0)
+mesh = SubResource("Pier")
+
+[node name="Lintel" type="MeshInstance3D" parent="."]
+position = Vector3(0, 3, 0)
+mesh = SubResource("Lintel")
+
+[node name="Piers" type="StaticBody3D" parent="."]
+collision_layer = 0
+collision_mask = 0
+
+[node name="West" type="CollisionShape3D" parent="Piers"]
+position = Vector3(-1.20, 1.41, 0)
+shape = SubResource("PierShape")
+
+[node name="East" type="CollisionShape3D" parent="Piers"]
+position = Vector3(1.20, 1.41, 0)
+shape = SubResource("PierShape")

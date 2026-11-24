@@ -1,0 +1,17 @@
+.godot/
+.mono/
+bin/
+obj/
+TestResults/
+.vs/
+*.user
+*.suo
+*.log
+*.tmp
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+Thumbs.db

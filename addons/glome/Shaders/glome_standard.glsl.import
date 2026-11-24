@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bn1alekc32d1w"
+path="res://.godot/imported/glome_standard.glsl-f155c8840b9261d7077a55bb698f13ca.res"
+
+[deps]
+
+source_file="res://addons/glome/Shaders/glome_standard.glsl"
+dest_files=["res://.godot/imported/glome_standard.glsl-f155c8840b9261d7077a55bb698f13ca.res"]
+
+[params]
+

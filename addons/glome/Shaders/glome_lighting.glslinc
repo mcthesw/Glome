@@ -1,0 +1,34 @@
+// Light sources are unit poles. Their projection is the tangent of the shortest
+// geodesic toward the source; atan remains stable near both ends of the arc.
+vec4 light_direction(vec4 x, vec4 source, out float angle) {
+    float c = clamp(dot(x,source),-1.0,1.0);
+    vec4 projected = source-x*c;
+    float len = length(projected);
+    angle = atan(len,c);
+    return projected/max(len,1e-10);
+}
+
+bool light_visible(vec4 x, vec4 geometric, vec4 source, int ignore) {
+    vec4 origin = normalize(x+geometric*0.000035);
+    float angle;
+    vec4 direction = light_direction(origin,source,angle);
+    return dot(direction,direction) < 0.5 || angle <= RAY_MIN ||
+        trace(origin,direction,RAY_MIN,angle,true,ignore).kind == 0;
+}
+
+// GGX normal distribution with correlated Smith visibility and Schlick Fresnel.
+vec3 direct_light(MaterialRecord m, vec3 albedo, vec4 n, vec4 v, vec4 l) {
+    float nl = max(0.0,dot(n,l)), nv = max(1e-4,dot(n,v));
+    vec4 h = normalize(v+l);
+    float nh = max(0.0,dot(n,h)), vh = max(0.0,dot(v,h));
+    float a = max(0.045,m.emission_roughness.w*m.emission_roughness.w), a2 = a*a;
+    float d = nh*nh*(a2-1.0)+1.0;
+    float vis = 0.5/max(1e-5,nl*sqrt(nv*nv*(1.0-a2)+a2)+nv*sqrt(nl*nl*(1.0-a2)+a2));
+    vec3 f0 = mix(vec3(0.04),albedo,m.metallic);
+    vec3 f = f0+(1.0-f0)*pow(1.0-vh,5.0);
+    return nl/PI*((1.0-f)*(1.0-m.metallic)*albedo+f*(a2/(d*d))*vis);
+}
+
+vec3 geodesic_fog(vec3 color, float angle) {
+    return mix(env.fog_density.rgb,color,exp(-env.fog_density.w*camera.lens.x*angle));
+}

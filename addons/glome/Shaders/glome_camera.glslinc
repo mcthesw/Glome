@@ -1,0 +1,15 @@
+vec2 screen_uv(ivec2 pixel) {
+    return (vec2(pixel)+0.5)/vec2(camera.dims.xy)*2.0-1.0;
+}
+
+vec4 pixel_direction(vec2 uv) {
+    float aspect = float(camera.dims.x)/float(camera.dims.y);
+    return normalize(-camera.back + camera.lens.y * (camera.right * uv.x * aspect - camera.up * uv.y));
+}
+
+void write_probe(int i, Hit h) {
+    probes[i].ids = ivec2(h.kind,h.id);
+    probes[i].angle = h.t;
+    probes[i].u = h.uv.x;
+    probes[i].v = h.uv.y;
+}

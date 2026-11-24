@@ -1,0 +1,199 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://addons/glome/Runtime/S3Space3D.cs" id="1"]
+[ext_resource type="Script" path="res://addons/glome/Rendering/S3Environment.cs" id="2"]
+[ext_resource type="Script" path="res://addons/glome/Runtime/S3Anchor3D.cs" id="3"]
+[ext_resource type="Script" path="res://addons/glome/Runtime/S3CharacterController.cs" id="4"]
+[ext_resource type="Script" path="res://addons/glome/Runtime/S3Camera3D.cs" id="5"]
+[ext_resource type="PackedScene" path="res://addons/glome/Examples/Meridian.tscn" id="6"]
+
+[sub_resource type="Gradient" id="Seam"]
+offsets = PackedFloat32Array(0, 0.04, 0.10, 0.86, 0.94, 1)
+colors = PackedColorArray(0.70, 0.72, 0.71, 1, 0.84, 0.85, 0.83, 1, 0.96, 0.96, 0.94, 1, 0.96, 0.96, 0.94, 1, 0.84, 0.85, 0.83, 1, 0.70, 0.72, 0.71, 1)
+
+[sub_resource type="GradientTexture2D" id="Tile"]
+gradient = SubResource("Seam")
+width = 128
+height = 8
+
+[sub_resource type="StandardMaterial3D" id="Paving"]
+albedo_color = Color(0.65, 0.72, 0.71, 1)
+albedo_texture = SubResource("Tile")
+roughness = 0.87
+uv1_scale = Vector3(3, 3, 1)
+
+[sub_resource type="Resource" id="Daylight"]
+script = ExtResource("2")
+AmbientColor = Color(0.84, 0.92, 1, 1)
+AmbientEnergy = 0.44
+FogColor = Color(0.70, 0.79, 0.81, 1)
+FogDensity = 0.047
+GroundMaterial = SubResource("Paving")
+
+[sub_resource type="StandardMaterial3D" id="Limestone"]
+albedo_color = Color(0.89, 0.84, 0.72, 1)
+roughness = 0.74
+
+[sub_resource type="StandardMaterial3D" id="Enamel"]
+albedo_color = Color(0.10, 0.46, 0.50, 1)
+metallic = 0.17
+roughness = 0.28
+
+[sub_resource type="StandardMaterial3D" id="Vermilion"]
+albedo_color = Color(0.90, 0.35, 0.15, 1)
+metallic = 0.28
+roughness = 0.32
+
+[sub_resource type="StandardMaterial3D" id="Bronze"]
+albedo_color = Color(0.91, 0.68, 0.29, 1)
+metallic = 0.53
+roughness = 0.24
+
+[sub_resource type="CylinderMesh" id="Base"]
+material = SubResource("Limestone")
+top_radius = 0.93
+bottom_radius = 0.95
+height = 0.24
+radial_segments = 32
+rings = 0
+
+[sub_resource type="CylinderMesh" id="Column"]
+material = SubResource("Enamel")
+top_radius = 0.53
+bottom_radius = 0.66
+height = 1.05
+radial_segments = 32
+rings = 0
+
+[sub_resource type="TorusMesh" id="Ring"]
+material = SubResource("Vermilion")
+inner_radius = 0.66
+outer_radius = 0.90
+rings = 48
+ring_segments = 12
+
+[sub_resource type="SphereMesh" id="Globe"]
+material = SubResource("Bronze")
+radius = 0.39
+height = 0.78
+radial_segments = 32
+rings = 14
+
+[sub_resource type="BoxMesh" id="Block"]
+material = SubResource("Limestone")
+size = Vector3(0.78, 1.7, 0.78)
+
+[sub_resource type="CylinderShape3D" id="PlinthShape"]
+radius = 0.95
+height = 1.29
+
+[sub_resource type="BoxShape3D" id="BlockShape"]
+size = Vector3(0.78, 1.7, 0.78)
+
+[node name="MeridianGallery" type="Node3D"]
+script = ExtResource("1")
+Radius = 14.0
+Environment = SubResource("Daylight")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.87, -0.54, 0)
+light_color = Color(1, 0.93, 0.81, 1)
+light_energy = 3.6
+shadow_enabled = true
+
+[node name="Orrery" type="Node3D" parent="."]
+script = ExtResource("3")
+position = Vector3(0, 0, -4.4)
+
+[node name="Foot" type="MeshInstance3D" parent="Orrery"]
+position = Vector3(0, 0.12, 0)
+mesh = SubResource("Base")
+
+[node name="Column" type="MeshInstance3D" parent="Orrery"]
+position = Vector3(0, 0.765, 0)
+mesh = SubResource("Column")
+
+[node name="OrbitalRing" type="MeshInstance3D" parent="Orrery"]
+position = Vector3(0, 2.06, 0)
+rotation = Vector3(1.21, -0.37, 0.32)
+mesh = SubResource("Ring")
+
+[node name="Globe" type="MeshInstance3D" parent="Orrery"]
+position = Vector3(0, 1.68, 0)
+mesh = SubResource("Globe")
+
+[node name="PlinthBody" type="StaticBody3D" parent="Orrery"]
+collision_layer = 0
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape3D" parent="Orrery/PlinthBody"]
+position = Vector3(0, 0.645, 0)
+shape = SubResource("PlinthShape")
+
+[node name="Lamp" type="OmniLight3D" parent="Orrery"]
+position = Vector3(2.3, 3, 1.5)
+light_color = Color(0.69, 0.86, 1, 1)
+light_energy = 2.0
+omni_range = 7.0
+
+[node name="Satellite" type="Node3D" parent="."]
+script = ExtResource("3")
+position = Vector3(-2.35, 0, -5.6)
+rotation = Vector3(0, 0.32, 0)
+
+[node name="Pedestal" type="MeshInstance3D" parent="Satellite"]
+position = Vector3(0, 0.85, 0)
+mesh = SubResource("Block")
+
+[node name="Globe" type="MeshInstance3D" parent="Satellite"]
+position = Vector3(0, 2.08, 0)
+mesh = SubResource("Globe")
+
+[node name="BaseBody" type="StaticBody3D" parent="Satellite"]
+collision_layer = 0
+collision_mask = 0
+
+[node name="Collision" type="CollisionShape3D" parent="Satellite/BaseBody"]
+position = Vector3(0, 0.85, 0)
+shape = SubResource("BlockShape")
+
+[node name="Meridian1" parent="." instance=ExtResource("6")]
+ChartPlacement = 6
+PolarDegrees = 32.0
+BearingDegrees = 153.0
+
+[node name="Meridian2" parent="." instance=ExtResource("6")]
+ChartPlacement = 6
+PolarDegrees = 63.0
+BearingDegrees = -158.0
+
+[node name="Meridian3" parent="." instance=ExtResource("6")]
+ChartPlacement = 6
+PolarDegrees = 98.0
+BearingDegrees = 166.0
+
+[node name="Meridian4" parent="." instance=ExtResource("6")]
+ChartPlacement = 6
+PolarDegrees = 135.0
+BearingDegrees = -170.0
+
+[node name="Meridian5" parent="." instance=ExtResource("6")]
+ChartPlacement = 6
+PolarDegrees = 170.0
+BearingDegrees = 165.0
+
+[node name="Meridian6" parent="." instance=ExtResource("6")]
+ChartPlacement = 6
+PolarDegrees = 115.0
+BearingDegrees = 30.0
+
+[node name="Meridian7" parent="." instance=ExtResource("6")]
+ChartPlacement = 6
+PolarDegrees = 64.0
+BearingDegrees = -24.0
+
+[node name="Walker" type="Node3D" parent="."]
+script = ExtResource("4")
+
+[node name="Eye" type="Node3D" parent="Walker"]
+script = ExtResource("5")

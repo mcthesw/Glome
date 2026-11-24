@@ -1,0 +1,200 @@
+const uint NO_TEXTURE = 0xffffffffu;
+const uint NEAREST = 8u, CLAMP_UV = 16u, DISABLE_MIPS = 32u;
+
+vec4 sample_bank(texture2DArray bank, vec3 uv, uint flags, float lod) {
+    if ((flags & DISABLE_MIPS) != 0u) lod = 0.0;
+    if ((flags & CLAMP_UV) != 0u) {
+        if ((flags & NEAREST) != 0u) return textureLod(sampler2DArray(bank,nearest_clamp),uv,lod);
+        return textureLod(sampler2DArray(bank,linear_clamp),uv,lod);
+    }
+    if ((flags & NEAREST) != 0u) return textureLod(sampler2DArray(bank,nearest_repeat),uv,lod);
+    return textureLod(sampler2DArray(bank,linear_repeat),uv,lod);
+}
+
+vec4 material_sample(MaterialRecord m, vec2 uv, float footprint) {
+    if (m.albedo_ref == NO_TEXTURE) return m.base_color;
+    vec3 coord = vec3(uv,float(m.albedo_ref & 0xffffffu));
+    if ((m.albedo_ref >> 24) == 0u) {
+        ivec2 size = textureSize(sampler2DArray(bank0,linear_repeat),0).xy;
+        float lod = log2(max(1.0,footprint*float(max(size.x,size.y))));
+        return m.base_color*sample_bank(bank0,coord,m.flags,lod);
+    }
+    else if ((m.albedo_ref >> 24) == 1u) {
+        ivec2 size = textureSize(sampler2DArray(bank1,linear_repeat),0).xy;
+        float lod = log2(max(1.0,footprint*float(max(size.x,size.y))));
+        return m.base_color*sample_bank(bank1,coord,m.flags,lod);
+    }
+    else if ((m.albedo_ref >> 24) == 2u) {
+        ivec2 size = textureSize(sampler2DArray(bank2,linear_repeat),0).xy;
+        float lod = log2(max(1.0,footprint*float(max(size.x,size.y))));
+        return m.base_color*sample_bank(bank2,coord,m.flags,lod);
+    }
+    else if ((m.albedo_ref >> 24) == 3u) {
+        ivec2 size = textureSize(sampler2DArray(bank3,linear_repeat),0).xy;
+        float lod = log2(max(1.0,footprint*float(max(size.x,size.y))));
+        return m.base_color*sample_bank(bank3,coord,m.flags,lod);
+    }
+    return m.base_color;
+}
+
+ivec2 texel_address(ivec2 p, ivec2 size, bool clamped) {
+    if (clamped) return clamp(p,ivec2(0),size-1);
+    return (p%size+size)%size;
+}
+
+// Explicit base-level interpolation keeps the alpha threshold independent of
+// device subtexel filtering precision, screen resolution and shadow ray cones.
+float base_alpha(texture2DArray bank, int layer, vec2 uv, uint flags) {
+    ivec2 size = textureSize(sampler2DArray(bank,nearest_repeat),0).xy;
+    vec2 p = uv*vec2(size);
+    bool clamped = (flags & CLAMP_UV) != 0u;
+    if ((flags & NEAREST) != 0u)
+        return texelFetch(sampler2DArray(bank,nearest_repeat),ivec3(texel_address(ivec2(floor(p)),size,clamped),layer),0).a;
+    p -= 0.5;
+    ivec2 ij = ivec2(floor(p));
+    ivec2 a = texel_address(ij,size,clamped), b = texel_address(ij+1,size,clamped);
+    float aa = texelFetch(sampler2DArray(bank,nearest_repeat),ivec3(a,layer),0).a;
+    float ba = texelFetch(sampler2DArray(bank,nearest_repeat),ivec3(b.x,a.y,layer),0).a;
+    float ab = texelFetch(sampler2DArray(bank,nearest_repeat),ivec3(a.x,b.y,layer),0).a;
+    float bb = texelFetch(sampler2DArray(bank,nearest_repeat),ivec3(b,layer),0).a;
+    vec2 f = fract(p);
+    return mix(mix(aa,ba,f.x),mix(ab,bb,f.x),f.y);
+}
+
+bool covered(MaterialRecord m, vec2 uv) {
+    float alpha = m.base_color.a;
+    if (m.albedo_ref != NO_TEXTURE) {
+        int layer = int(m.albedo_ref & 0xffffffu);
+        switch (m.albedo_ref >> 24) {
+            case 0u: alpha *= base_alpha(bank0,layer,uv,m.flags); break;
+            case 1u: alpha *= base_alpha(bank1,layer,uv,m.flags); break;
+            case 2u: alpha *= base_alpha(bank2,layer,uv,m.flags); break;
+            case 3u: alpha *= base_alpha(bank3,layer,uv,m.flags); break;
+        }
+    }
+    return alpha >= m.alpha_cutoff;
+}
+
+vec3 chart_weights(int j, vec3 beta) {
+    vec3 w = beta*tris[j].inv_k_material.xyz;
+    return w/dot(w,vec3(1));
+}
+
+vec2 triangle_uv(int j, vec3 w) {
+    return tris[j].uv01.xy*w.x + tris[j].uv01.zw*w.y + tris[j].uv2.xy*w.z;
+}
+
+float first_root(float a, float b, float lo) {
+    if (abs(a)+abs(b) < 1e-12) return 10.0;
+    float t = atan(a,-b);
+    if (t < lo) t += PI;
+    if (t < lo) t += PI;
+    return t;
+}
+
+bool cap_hits(CapNode node, vec4 start, vec4 tangent, vec2 end_cs) {
+    float k = node.bounds.x-5e-7;
+    vec2 projected = vec2(dot(node.center,start),dot(node.center,tangent));
+    if (k > 0.0 && dot(projected,projected) < k*k) return false;
+    // In this great-circle basis the endpoint and its tangent are a 2D rotation.
+    return projected.x >= k || dot(projected,end_cs) >= k ||
+        (projected.y >= -2e-7 && dot(projected,vec2(-end_cs.y,end_cs.x)) <= 2e-7);
+}
+
+Hit trace(vec4 p, vec4 d, float lo, float hi, bool any_hit, int ignore) {
+    Hit h = Hit(0,-1,hi,vec2(0),vec3(0));
+    float t_ground = first_root(p.y,d.y,lo);
+    if (env.mode_ground_mat.y >= 0 && t_ground <= hi) {
+        vec2 uv = (p.xz*cos(t_ground) + d.xz*sin(t_ground))*camera.lens.x*env.ground_uv_xform.xy + env.ground_uv_xform.zw;
+#ifndef GLOME_OPAQUE_TWO_SIDED
+        MaterialRecord ground = material_records[env.mode_ground_mat.y];
+        if (ground.alpha_cutoff <= 0.0 || covered(ground,uv))
+#endif
+        {
+            h.kind = 1; h.t = t_ground; h.uv = uv;
+            if (any_hit) return h;
+        }
+    }
+#ifdef GLOME_ANALYTIC_HIT
+    GLOME_ANALYTIC_HIT(p,d,lo,any_hit,h);
+    if (any_hit && h.kind != 0) return h;
+#endif
+    vec4 start = p*cos(lo)+d*sin(lo), start_d = d*cos(lo)-p*sin(lo);
+    vec2 end_cs = h.t == PI ? vec2(-cos(lo),sin(lo)) : vec2(cos(h.t-lo),sin(h.t-lo));
+    for (int i = 0; i < camera.dims.z;) {
+        CapNode node = nodes[i];
+        if (!cap_hits(node,start,start_d,end_cs)) { i = int(node.bounds.w); continue; }
+        int first = int(node.bounds.y), stop = first+int(node.bounds.z);
+        for (int j = first; j < stop; ++j) {
+            if (j == ignore) continue;
+            vec4 plane = tris[j].plane;
+            vec2 equation = vec2(dot(plane,start),dot(plane,start_d));
+            float end_side = dot(equation,end_cs);
+            if (min(equation.x,end_side) > 1e-6 || max(equation.x,end_side) < -1e-6) continue;
+            // The forward root of A cos(u) + B sin(u) = 0 lies on (-B,A) or
+            // its antipode. Test its triangle before evaluating an intersection angle.
+            float size2 = dot(equation,equation);
+            if (size2 < 1e-24) continue;
+            vec2 root = vec2(-equation.y, equation.x);
+            if (root.y < 0.0 || (root.y == 0.0 && root.x < 0.0)) root = -root;
+            // Compare on the unit circle before rounding the root angle to a
+            // float. This also rejects roots a few ulps beyond the antipode.
+            if (root.x*end_cs.y < root.y*end_cs.x) continue;
+            root *= inversesqrt(size2);
+            vec4 x = start*root.x+start_d*root.y;
+            vec3 beta = vec3(dot(tris[j].dual0,x),dot(tris[j].dual1,x),dot(tris[j].dual2,x));
+            if (min(beta.x,min(beta.y,beta.z)) < -2e-5) continue;
+#ifdef GLOME_EXCLUDE_CANDIDATE
+            if (GLOME_EXCLUDE_CANDIDATE(j)) continue;
+#endif
+            float t = lo+atan(root.y,root.x);
+            if (t > h.t || (t == h.t && h.kind == 2 && j >= h.id)) continue;
+#ifndef GLOME_OPAQUE_TWO_SIDED
+            int flags = int(tris[j].uv2.w), cull = flags & 3;
+            float facing = dot(equation,vec2(-root.y,root.x));
+            if ((cull == 0 && facing >= 0.0) || (cull == 1 && facing <= 0.0)) continue;
+            if ((flags & 4) != 0 && !covered(material_records[int(tris[j].inv_k_material.w)],
+                                              triangle_uv(j,chart_weights(j,beta)))) continue;
+#endif
+            h.kind = 2; h.id = j; h.t = t;
+            if (any_hit) return h;
+            h.weights = chart_weights(j,beta);
+            h.uv = triangle_uv(j,h.weights);
+            end_cs = root;
+        }
+        ++i;
+    }
+    return h;
+}
+
+float uv_footprint(Triangle tri, vec4 x, vec2 uv, float angular) {
+    vec3 k = tri.inv_k_material.xyz;
+    vec4 a = tri.dual0*k.x, b = tri.dual1*k.y, c = tri.dual2*k.z;
+    vec4 gu = a*(tri.uv01.x-uv.x)+b*(tri.uv01.z-uv.x)+c*(tri.uv2.x-uv.x);
+    vec4 gv = a*(tri.uv01.y-uv.y)+b*(tri.uv01.w-uv.y)+c*(tri.uv2.y-uv.y);
+    return max(length(gu),length(gv))*angular/max(1e-4,dot(a+b+c,x));
+}
+
+vec4 bump_from_uv(Triangle tri, vec4 x, vec4 n, vec2 uv, vec2 dh) {
+    vec4 a = tri.dual0*tri.inv_k_material.x, b = tri.dual1*tri.inv_k_material.y, c = tri.dual2*tri.inv_k_material.z;
+    vec4 g = a*dot(dh,tri.uv01.xy-uv) + b*dot(dh,tri.uv01.zw-uv) + c*dot(dh,tri.uv2.xy-uv);
+    g /= max(1e-5,dot(a+b+c,x))*camera.lens.x;
+    return normalize(n - (g-x*dot(x,g)-n*dot(n,g)));
+}
+
+vec4 smooth_normal(Triangle tri, vec3 weights, vec4 x) {
+    vec4 n = tri.n0*weights.x+tri.n1*weights.y+tri.n2*weights.z;
+    n -= x*dot(x,n);
+    return dot(n,n) > 1e-12 ? normalize(n) : tri.plane;
+}
+
+// Cap and root tests work on intervals of at most pi. A floorless primary
+// continues from the antipode until it meets geometry or completes one circuit.
+Hit trace_primary(vec4 p, vec4 d) {
+    Hit h = trace(p,d,RAY_MIN,PI,false,-1);
+    if (h.kind == 0 && env.mode_ground_mat.y < 0) {
+        h = trace(-p,-d,0.0,PI,false,-1);
+        h.t += PI;
+    }
+    return h;
+}
