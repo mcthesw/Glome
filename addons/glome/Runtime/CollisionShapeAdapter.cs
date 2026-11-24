@@ -6,14 +6,22 @@ namespace Glome;
 
 public static class CollisionShapeAdapter
 {
-    public static CollisionProxy? Create(S3Frame chart, double radius, Transform3D pose, Shape3D? shape) =>
+    internal readonly record struct Input(S3Frame Chart, Transform3D Pose, Vector3 Half, ProxyShape Shape)
+    {
+        internal CollisionProxy Bake(double radius) => Create(Chart, radius, Pose, Half, Shape);
+    }
+
+    internal static Input? Capture(S3Frame chart, Transform3D pose, Shape3D? shape) =>
         shape switch
         {
-            BoxShape3D box => Box(chart, radius, pose, box.Size / 2),
-            CylinderShape3D cylinder => Create(chart, radius, pose,
+            BoxShape3D box => new(chart, pose, box.Size / 2, ProxyShape.Box),
+            CylinderShape3D cylinder => new(chart, pose,
                 new(cylinder.Radius, cylinder.Height / 2, cylinder.Radius), ProxyShape.Cylinder),
             _ => null
         };
+
+    public static CollisionProxy? Create(S3Frame chart, double radius, Transform3D pose, Shape3D? shape) =>
+        Capture(chart, pose, shape)?.Bake(radius);
 
     public static CollisionProxy Box(S3Frame chart, double radius, Transform3D pose, Vector3 halfExtents) =>
         Create(chart, radius, pose, halfExtents, ProxyShape.Box);
