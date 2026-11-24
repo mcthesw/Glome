@@ -72,7 +72,7 @@ public partial class S3CharacterController : Node3D
     {
         if (_motor == null || delta <= 0) return;
         var speed = Flying ? FlightSpeed : sprint ? SprintSpeed : WalkSpeed;
-        _motor.Move(direction.X, direction.Y, direction.Z, speed * delta);
+        _motor.Move(direction.X, direction.Y, direction.Z, speed * delta, seconds: delta);
         _camera!.DrivenEye = _motor.Camera;
     }
 

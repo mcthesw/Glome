@@ -11,9 +11,10 @@ public sealed class S3MotorCore
     private S3CollisionWorld _collision;
     private S3Frame _body, _flight;
     private double _pitch;
+    private S3Elevation? _elevation;
 
     public bool Flying { get; private set; }
-    public S3Frame Camera => Flying ? _flight : new WalkPose(_body, _pitch).Eye(_collision.Radius, _profile.EyeHeight);
+    public S3Frame Camera => Flying ? _flight : new WalkPose(_body, _pitch, _elevation?.Height ?? 0).Eye(_collision.Radius, _profile.EyeHeight);
 
     public S3MotorCore(double radius, WalkPose arrival, BodyProfile profile, S3CollisionWorld? collision = null)
     {
@@ -21,6 +22,7 @@ public sealed class S3MotorCore
             throw new ArgumentException("Collision charts must use the motor's radius.", nameof(collision));
         _collision = collision ?? new S3CollisionWorld(radius, []);
         _profile = profile;
+        if (_collision.HasElevation) _elevation = new();
         Visit(arrival);
     }
 
@@ -29,6 +31,9 @@ public sealed class S3MotorCore
         var camera = Camera;
         _collision = collision;
         _profile = profile ?? _profile;
+        double height = _elevation?.Height ?? 0;
+        _elevation = collision.HasElevation ? new() : null;
+        _elevation?.Place(collision, _body.P, height);
         if (!collision.EquatorialGroundEnabled) { _flight = camera; Flying = true; }
         ClearPlacement();
     }
@@ -42,7 +47,9 @@ public sealed class S3MotorCore
             return;
         }
         Flying = false;
-        _body = _collision.ClearPlacement(arrival.Ground, _profile.Radius, _profile.Height);
+        _elevation?.Place(_collision, arrival.Ground.P, arrival.Elevation);
+        _body = _elevation?.Clear(_collision, arrival.Ground, _profile)
+            ?? _collision.ClearPlacement(arrival.Ground, _profile.Radius, _profile.Height);
         _pitch = arrival.Pitch;
     }
 
@@ -52,6 +59,7 @@ public sealed class S3MotorCore
         if (!Flying) { _flight = Camera; Flying = true; return; }
         Flying = false;
         _pitch = 0;
+        _elevation?.Place(_collision, _body.P, Math.Asin(_flight.P.Y) * _collision.Radius - _profile.EyeHeight);
         ClearPlacement();
     }
 
@@ -94,7 +102,8 @@ public sealed class S3MotorCore
             AlignFlightHeading();
             return;
         }
-        _body = _collision.ClearPlacement(_body, _profile.Radius, _profile.Height);
+        _body = _elevation?.Clear(_collision, _body, _profile)
+            ?? _collision.ClearPlacement(_body, _profile.Radius, _profile.Height);
     }
 
     public double Pitch => _pitch;
@@ -113,11 +122,16 @@ public sealed class S3MotorCore
         }
     }
 
-    public void Move(double x, double y, double z, double metres, double roll = 0)
+    public void Move(double x, double y, double z, double metres, double roll = 0, double seconds = 0)
     {
         if (Flying && roll != 0) _flight = _flight.Roll(roll);
         var frame = Flying ? _flight : _body;
         D4 movement = frame.Local(x, Flying ? y : 0, z);
+        if (!Flying && _elevation is not null)
+        {
+            _body = _elevation.Move(_collision, _body, _profile, x, z, movement.Length < 1e-12 ? 0 : metres, seconds);
+            return;
+        }
         if (movement.Length < 1e-12) return;
         if (Flying)
         {

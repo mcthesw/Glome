@@ -8,8 +8,18 @@ public readonly record struct RayHit(HitKind Kind, int Triangle, double T, D2 Uv
 
 public sealed class BakedGeometry(double radius, GeodesicTriangle[] triangles, CapNode[] nodes,
                                   bool equatorialGroundEnabled = true, Func<int, D2, bool>? covers = null,
-                                  D2? groundUvScale = null, D2 groundUvOffset = default, int cutoutGround = -1)
+                                  D2? groundUvScale = null, D2 groundUvOffset = default, int cutoutGround = -1,
+                                  Predicate<D4>? groundMask = null)
 {
+    private readonly Func<D4, D2, bool>? _coversGround = GroundCoverage(groundMask, cutoutGround, covers);
+    private readonly double _traceLimit = equatorialGroundEnabled && groundMask is null ? Math.PI : Math.Tau;
+
+    private static Func<D4, D2, bool>? GroundCoverage(Predicate<D4>? mask, int material, Func<int, D2, bool>? coverage)
+    {
+        if (material < 0 || coverage is null) return mask is null ? null : (point, _) => mask(point);
+        return (point, uv) => (mask is null || mask(point)) && coverage(material, uv);
+    }
+
     public const double RayStart = 0.00001;
     public double Radius { get; } = radius;
     public GeodesicTriangle[] Triangles { get; } = triangles;
@@ -19,7 +29,7 @@ public sealed class BakedGeometry(double radius, GeodesicTriangle[] triangles, C
     public RayHit Trace(ArcRay ray, bool bruteForce = false, double lo = RayStart, double? hi = null,
                         int ignoredTriangle = -1, Predicate<GeodesicTriangle>? filter = null, bool includeEquator = true)
     {
-        double end = hi ?? (EquatorialGroundEnabled ? Math.PI : Math.Tau);
+        double end = hi ?? _traceLimit;
         var hit = new RayHit(HitKind.Miss, -1, end, default);
         double ground = ArcRay.FirstRoot(ray.P.Y, ray.D.Y, lo);
         if (EquatorialGroundEnabled && includeEquator && double.IsFinite(ground) && ground <= end)
@@ -29,7 +39,7 @@ public sealed class BakedGeometry(double radius, GeodesicTriangle[] triangles, C
             {
                 D4 x = ray.At(ground);
                 var uv = new D2(x.X * Radius * scale.X, x.Z * Radius * scale.Y) + groundUvOffset;
-                if (cutoutGround >= 0 && covers != null && !covers(cutoutGround, uv)) continue;
+                if (_coversGround != null && !_coversGround(x, uv)) continue;
                 hit = new(HitKind.Ground, -1, ground, uv);
                 break;
             }

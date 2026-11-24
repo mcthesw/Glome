@@ -132,7 +132,7 @@ public static class GlomeBaker
         }
     }
 
-    internal static BakeResult BakeCore(BakeInputs inputs)
+    internal static BakeResult BakeCore(BakeInputs inputs, Predicate<D4>? groundMask = null)
     {
         var triangles = new List<GeodesicTriangle>();
         List<int>? owners = inputs.TrackOwners ? [] : null;
@@ -147,7 +147,7 @@ public static class GlomeBaker
         var ground = inputs.Ground;
         var materials = inputs.Materials;
         var geometry = new BakedGeometry(inputs.Radius, faces, nodes, floor, materials == null ? null : materials.Covers,
-            new(uv.X, uv.Y), new(uv.Z, uv.W), (ground.Traversal & TraversalFlags.Cutout) != 0 ? ground.Material : -1);
+            new(uv.X, uv.Y), new(uv.Z, uv.W), (ground.Traversal & TraversalFlags.Cutout) != 0 ? ground.Material : -1, groundMask);
         var proxies = Array.ConvertAll(inputs.Proxies, proxy => proxy.Bake(inputs.Radius));
         return new(geometry, new(inputs.Radius, proxies, floor), indices);
     }

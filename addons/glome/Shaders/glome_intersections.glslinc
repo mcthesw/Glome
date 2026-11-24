@@ -104,7 +104,11 @@ bool cap_hits(CapNode node, vec4 start, vec4 tangent, vec2 end_cs) {
 Hit trace(vec4 p, vec4 d, float lo, float hi, bool any_hit, int ignore) {
     Hit h = Hit(0,-1,hi,vec2(0),vec3(0));
     float t_ground = first_root(p.y,d.y,lo);
-    if (env.mode_ground_mat.y >= 0 && t_ground <= hi) {
+    if (env.mode_ground_mat.y >= 0 && t_ground <= hi
+#ifdef GLOME_GROUND_HOLE
+        && !GLOME_GROUND_HOLE(p*cos(t_ground) + d*sin(t_ground))
+#endif
+    ) {
         vec2 uv = (p.xz*cos(t_ground) + d.xz*sin(t_ground))*camera.lens.x*env.ground_uv_xform.xy + env.ground_uv_xform.zw;
 #ifndef GLOME_OPAQUE_TWO_SIDED
         MaterialRecord ground = material_records[env.mode_ground_mat.y];

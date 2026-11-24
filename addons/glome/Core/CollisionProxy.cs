@@ -16,10 +16,13 @@ public sealed class CollisionProxy
     private readonly bool _round;
     private readonly double _bound, _paddingScale, _heightScale, _radius;
 
+    internal bool WalkableTop { get; }
+
     public CollisionProxy(S3Frame chart, double radius, ProxyTransform transform,
-                          D4 halfExtents, ProxyShape shape)
+                          D4 halfExtents, ProxyShape shape, bool walkableTop = false)
     {
         _radius = radius;
+        WalkableTop = walkableTop;
         _pole = chart.P;
         D4 Axis(D4 row) => chart.Local(row.X, row.Y, row.Z) * radius + chart.P * row.W;
         _x = Axis(transform.InverseX);
@@ -35,13 +38,33 @@ public sealed class CollisionProxy
         _heightScale = transform.AxisLengths.Y * _inverseScale.Y;
     }
 
+    // Intersect the vertical great circle q cos(h/R) + U sin(h/R) with the
+    // homogeneous top plane, then clip the strike against the finite chart box.
+    internal bool TopHeight(D4 ground, out double metres, bool clip = true)
+    {
+        D4 plane = _y - _pole * _half.Y;
+        metres = 0;
+        if (plane.Y <= 0 || _pole.Dot(ground) <= 0) return false;
+        double angle = Math.Atan2(-plane.Dot(ground), plane.Y);
+        metres = angle * _radius;
+        if (!clip) return true;
+        D4 strike = ground * Math.Cos(angle) + D4.Up * Math.Sin(angle);
+        double w = _pole.Dot(strike);
+        return w > 0 && Math.Abs(_x.Dot(strike)) <= (_half.X + 1e-6) * w
+            && Math.Abs(_z.Dot(strike)) <= (_half.Z + 1e-6) * w;
+    }
+
+    private bool CanStepOn(D4 feet) =>
+        TopHeight(feet.Reject(D4.Up).Unit(), out double top, clip: false) &&
+        top <= _radius * Math.Asin(Math.Clamp(feet.Y, -1, 1)) + S3Elevation.StepUp;
+
     // A landing or a new curvature can place a stationary body inside a proxy.
     // Exit across a supporting great sphere, keeping a walking foot on the equator.
     internal bool Separate(S3Frame frame, double bodyRadius, double height, out S3Frame clear)
     {
         clear = frame;
         double w = _pole.Dot(frame.P);
-        if (w <= 0) return false;
+        if (w <= 0 || (WalkableTop && height > 0 && CanStepOn(frame.P))) return false;
         D4 size = _half + _inverseScale * bodyRadius;
         double x = _x.Dot(frame.P) / w, y = _y.Dot(frame.P) / w, z = _z.Dot(frame.P) / w;
         double bottom = size.Y + height * _inverseScale.Y;
@@ -82,6 +105,7 @@ public sealed class CollisionProxy
         double metres = _bound + bodyRadius * _paddingScale + height * _heightScale;
         double minW = Math.Cos(arc * 0.5) * _radius / double.Hypot(_radius, metres);
         if (Math.Max(w0, w1) < minW - 1e-12) return false;
+        if (WalkableTop && height > 0 && CanStepOn(end)) return false;
         double clip = minW * 0.5;
         double s0 = w0 < clip ? (clip - w0) / (w1 - w0) : 0;
         double s1 = w1 < clip ? (clip - w0) / (w1 - w0) : 1;
