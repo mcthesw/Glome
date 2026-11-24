@@ -55,6 +55,13 @@ public sealed class S3MotorCore
         ClearPlacement();
     }
 
+    public void FlyTo(S3Frame camera)
+    {
+        _flight = camera;
+        Flying = true;
+        ClearPlacement();
+    }
+
     // Flight adds an independent six-degree-of-freedom camera. Its equatorial
     // footprint also follows great circles (project the ray's 2-plane along U).
     private void TrackFlightPosition(D4 position)

@@ -115,9 +115,11 @@ Glome supports three progressive customization layers:
 
 To pass game-specific GPU buffers, declare `set = 1` bindings starting at `binding = 0` in your compute shader and populate `S3RenderProgram.CaptureSet1` with matching `ProgramBuffer` entries (and optional `SpecializationValues` for shader specialization constants).
 
-## Editor Integration and Custom Views
+## Editor Integration, Live Bridge, and Custom Views
 
-Enabling the **S³ Editor** plugin adds the **S³** main screen tab with live compute raytracing, click-to-select picking, $SO(4)$ translation/rotation gizmos, camera bookmarks, and Inspector tools for `S3Space3D` and `S3Anchor3D`.
+Enabling the **S³ Editor** plugin adds the **S³** main screen tab with live compute raytracing, click-to-select picking, $SO(4)$ translation/rotation gizmos, camera bookmarks, antialiased geodesic ground grids for untextured `StandardLit` / `Unlit` / `ClayClean` previews, and Inspector tools for `S3Space3D` and `S3Anchor3D`.
+
+`GlomeEditorPlugin` also includes a passive local file bridge (`GlomeEditorBridge`, defaulting to `<project_parent>/.local/glome-bridge/`, configurable via `GlomeEditorPlugin.BridgeDirectory` and `RegisterShaderReload`) so external tooling or AI coding agents can query selected nodes, capture **S³** preview snapshots, move/focus the camera, trigger rebakes, hot-reload compute shaders (`GlomeComputeRenderer.ReloadShader`), and safely reload unmodified scenes without opening network ports or adding editor UI clutter. See `.agents/skills/glome-live-debug/SKILL.md`.
 
 Game plugins can register additional preview modes in the **S³** viewport toolbar by implementing `Glome.Editor.IGlomeEditorViewProvider` and calling `Glome.Editor.GlomeEditorViews.Register(provider)` inside `_EnterTree()`, disposing the returned handle in `_ExitTree()`.
 

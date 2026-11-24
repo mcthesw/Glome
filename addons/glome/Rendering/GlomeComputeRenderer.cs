@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Glome.Core;
 using Godot;
 using Godot.Collections;
@@ -24,7 +25,9 @@ public sealed class GlomeComputeRenderer : IDisposable
     private readonly Rid[] _samplers = new Rid[4], _banks = new Rid[4];
     private Rid _programSet;
     private Rid[] _programBuffers = [];
+    private RD.UniformType[] _programTypes = [];
     private readonly Rid[] _pipelines;
+    private readonly int[] _specializations;
     private Vector2I _size, _spareSize;
     private Rid _spareImage, _spareSet;
     private bool _failed;
@@ -47,9 +50,9 @@ public sealed class GlomeComputeRenderer : IDisposable
     {
         _program = program ?? new GlomeStandardProgram();
         var spirv = _program.GetComputeSpirV();
-        var values = (int[])_program.SpecializationValues.Clone();
+        _specializations = (int[])_program.SpecializationValues.Clone();
         var bindings = _program.CaptureSet1?.Invoke() ?? [];
-        _pipelines = new Rid[Math.Max(1, values.Length)];
+        _pipelines = new Rid[Math.Max(1, _specializations.Length)];
         _capture = capture;
         _timingPrefix = timingPrefix;
         Schedule(() =>
@@ -61,12 +64,7 @@ public sealed class GlomeComputeRenderer : IDisposable
                 return;
             }
             _shader = Valid(_rd.ShaderCreateFromSpirV(spirv, "Glome"), "shader");
-            for (int i = 0; i < _pipelines.Length; i++)
-            {
-                var constants = new Array<RDPipelineSpecializationConstant>();
-                if (values.Length != 0) constants.Add(new() { ConstantId = 0, Value = values[i] });
-                _pipelines[i] = Valid(_rd.ComputePipelineCreate(_shader, constants), "compute pipeline");
-            }
+            CreatePipelines(_shader, _pipelines);
             for (int i = 0; i < _samplers.Length; i++)
             {
                 var filter = (i & 1) == 0 ? RD.SamplerFilter.Nearest : RD.SamplerFilter.Linear;
@@ -85,6 +83,62 @@ public sealed class GlomeComputeRenderer : IDisposable
 
     private static Rid Valid(Rid rid, string resource) =>
         rid.IsValid ? rid : throw new InvalidOperationException($"Could not create {resource}.");
+
+    private void CreatePipelines(Rid shader, Rid[] pipelines)
+    {
+        for (int i = 0; i < pipelines.Length; i++)
+        {
+            var constants = new Array<RDPipelineSpecializationConstant>();
+            if (_specializations.Length != 0) constants.Add(new() { ConstantId = 0, Value = _specializations[i] });
+            pipelines[i] = Valid(_rd!.ComputePipelineCreate(shader, constants), $"compute pipeline {i}");
+        }
+    }
+
+    // The caller receives recoverable errors separately from fatal render notices.
+    public Task ReloadShader(RDShaderSpirV spirv) => OnRenderThread(() =>
+    {
+        Rid shader = default, set = default, spareSet = default, programSet = default;
+        var pipelines = new Rid[_pipelines.Length];
+        try
+        {
+            shader = Valid(_rd!.ShaderCreateFromSpirV(spirv, "Glome"), "replacement shader");
+            CreatePipelines(shader, pipelines);
+            set = CreateSceneSet(shader, _image);
+            if (_spareImage.IsValid) spareSet = CreateSceneSet(shader, _spareImage);
+            programSet = CreateProgramSet(shader);
+            (_shader, shader) = (shader, _shader);
+            (_set, set) = (set, _set);
+            (_spareSet, spareSet) = (spareSet, _spareSet);
+            (_programSet, programSet) = (programSet, _programSet);
+            for (int i = 0; i < pipelines.Length; i++)
+                (_pipelines[i], pipelines[i]) = (pipelines[i], _pipelines[i]);
+        }
+        finally
+        {
+            Free(ref programSet);
+            Free(ref spareSet);
+            Free(ref set);
+            for (int i = 0; i < pipelines.Length; i++) Free(ref pipelines[i]);
+            Free(ref shader);
+        }
+        return true;
+    });
+
+    private Task<T> OnRenderThread<T>(Func<T> action)
+    {
+        if (_disposed) return Task.FromException<T>(new ObjectDisposedException(nameof(GlomeComputeRenderer)));
+        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        RenderingServer.CallOnRenderThread(Callable.From(() =>
+        {
+            try
+            {
+                if (_failed || _rd is null) throw new InvalidOperationException("The compute renderer is unavailable.");
+                completion.SetResult(action());
+            }
+            catch (Exception error) { completion.SetException(error); }
+        }));
+        return completion.Task;
+    }
 
     private void Schedule(Action action) => RenderingServer.CallOnRenderThread(Callable.From(() =>
     {
@@ -133,6 +187,8 @@ public sealed class GlomeComputeRenderer : IDisposable
     {
         Free(ref _programSet);
         for (int i = 0; i < _programBuffers.Length; i++) Free(ref _programBuffers[i]);
+        _programBuffers = [];
+        _programTypes = [];
         for (int i = 0; i < _banks.Length; i++) Free(ref _banks[i]);
         Free(ref _faces); Free(ref _tree); Free(ref _materials); Free(ref _environment); Free(ref _lights);
     }
@@ -162,9 +218,8 @@ public sealed class GlomeComputeRenderer : IDisposable
             };
             _banks[i] = Valid(_rd.TextureCreate(format, new RDTextureView(), new Array<byte[]>(bank.Layers)), $"texture bank {i}");
         }
-        if (bindings.Length == 0) return;
-        var uniforms = new Array<RDUniform>();
         _programBuffers = new Rid[bindings.Length];
+        _programTypes = new RD.UniformType[bindings.Length];
         for (int i = 0; i < bindings.Length; i++)
         {
             var binding = bindings[i];
@@ -174,9 +229,18 @@ public sealed class GlomeComputeRenderer : IDisposable
                 RD.UniformType.StorageBuffer => Buffer(binding.Data),
                 _ => throw new ArgumentException($"Unsupported program buffer type {binding.Type}.")
             };
-            Add(uniforms, binding.Type, _programBuffers[i]);
+            _programTypes[i] = binding.Type;
         }
-        _programSet = Valid(_rd.UniformSetCreate(uniforms, _shader, 1), "program uniform set");
+        _programSet = CreateProgramSet(_shader);
+    }
+
+    private Rid CreateProgramSet(Rid shader)
+    {
+        if (_programBuffers.Length == 0) return default;
+        var uniforms = new Array<RDUniform>();
+        for (int i = 0; i < _programBuffers.Length; i++)
+            Add(uniforms, _programTypes[i], _programBuffers[i]);
+        return Valid(_rd!.UniformSetCreate(uniforms, shader, 1), "program uniform set");
     }
 
     private void Update(Rid buffer, uint offset, byte[] data)
@@ -239,16 +303,18 @@ public sealed class GlomeComputeRenderer : IDisposable
         uniforms.Add(uniform);
     }
 
-    private void Bind()
+    private void Bind() => _set = CreateSceneSet(_shader, _image);
+
+    private Rid CreateSceneSet(Rid shader, Rid image)
     {
         var uniforms = new Array<RDUniform>();
-        Add(uniforms, RD.UniformType.Image, _image);
+        Add(uniforms, RD.UniformType.Image, image);
         foreach (var buffer in new[] { _faces, _tree, _materials, _probes, _lights })
             Add(uniforms, RD.UniformType.StorageBuffer, buffer);
         Add(uniforms, RD.UniformType.UniformBuffer, _environment);
         foreach (var bank in _banks) Add(uniforms, RD.UniformType.Texture, bank);
         foreach (var sampler in _samplers) Add(uniforms, RD.UniformType.Sampler, sampler);
-        _set = Valid(_rd!.UniformSetCreate(uniforms, _shader, 0), "scene uniform set");
+        return Valid(_rd!.UniformSetCreate(uniforms, shader, 0), "scene uniform set");
     }
 
     public void Draw(S3Frame view, double radius, int nodeCount, float elapsedSeconds, int probeCount = 0,
@@ -323,12 +389,24 @@ public sealed class GlomeComputeRenderer : IDisposable
         _probeRecords = null;
     });
 
-    public void SaveFrame(string path) => Schedule(() =>
+    private void WriteFrame(string path)
     {
         var pixels = _rd!.TextureGetData(_image, 0);
         using var image = Image.CreateFromData(_size.X, _size.Y, false, Image.Format.Rgba8, pixels);
         var error = image.SavePng(path);
         if (error != Error.Ok) throw new InvalidOperationException($"Cannot save {path} ({error}).");
+    }
+
+    public Task<bool> CaptureFrame(string path) => OnRenderThread(() =>
+    {
+        if (!_capture) throw new InvalidOperationException("Frame readback was not enabled.");
+        WriteFrame(path);
+        return true;
+    });
+
+    public void SaveFrame(string path) => Schedule(() =>
+    {
+        WriteFrame(path);
         Notices.Enqueue(new(RenderNoticeKind.FrameSaved, path));
     });
 
