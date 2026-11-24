@@ -134,3 +134,8 @@ Run full end-to-end standalone addon verification (builds a fresh empty Godot 4.
 ```bash
 python tests/verify_standalone_addon.py --godot /path/to/Godot_v4.7.1-stable_mono_console
 ```
+
+## License
+
+Glome is released under the [MIT License](LICENSE).
+
