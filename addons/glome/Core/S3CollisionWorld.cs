@@ -23,6 +23,24 @@ public sealed class S3CollisionWorld
     // IDs are insertion slots for the lifetime of this bake, independent of BVH permutation.
     public void ReplaceProxy(int id, CollisionProxy replacement) => _proxies[id] = replacement;
 
+    // First contact of a moving sphere with the authored solid proxies on a short arc.
+    public bool SweepSphere(ArcRay ray, double arc, double bodyRadius, out double first, out D4 normal) =>
+        Sweep(ray, arc, bodyRadius, 0, out first, out normal);
+
+    private bool Sweep(ArcRay ray, double arc, double bodyRadius, double height, out double first, out D4 normal)
+    {
+        D4 end = ray.At(arc);
+        first = arc;
+        normal = default;
+        foreach (var proxy in _proxies)
+        {
+            if (!proxy.Sweep(ray, end, arc, bodyRadius, height, out double t, out D4 n) || t > first) continue;
+            first = t;
+            normal = n;
+        }
+        return normal != default;
+    }
+
     public S3Frame ClearPlacement(S3Frame pose, double bodyRadius, double height)
     {
         if (!EquatorialGroundEnabled) height = 0;
@@ -52,15 +70,7 @@ public sealed class S3CollisionWorld
             for (int contact = 0; contact < 4 && remaining > 1e-9; contact++)
             {
                 var ray = new ArcRay(frame.P, d);
-                D4 end = ray.At(remaining);
-                double first = remaining;
-                D4 wall = default;
-                foreach (var proxy in _proxies)
-                {
-                    if (!proxy.Sweep(ray, end, remaining, bodyRadius, standingHeight, out double t, out D4 n) || t > first) continue;
-                    first = t; wall = n;
-                }
-                if (wall == default)
+                if (!Sweep(ray, remaining, bodyRadius, standingHeight, out double first, out D4 wall))
                 {
                     frame = frame.Travel(d, remaining);
                     onPosition?.Invoke(frame.P);
