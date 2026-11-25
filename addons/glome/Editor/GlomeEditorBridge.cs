@@ -20,7 +20,8 @@ internal sealed class GlomeEditorBridge(GlomeEditorPlugin preview)
     private bool _closed;
 
     private static GlomeDebugBridge OpenFiles(string? directory) =>
-        new(Path.GetFullPath(ProjectSettings.GlobalizePath(directory ?? "res://../.local/glome-bridge")),
+        new(Path.GetFullPath(ProjectSettings.GlobalizePath(directory ??
+            System.Environment.GetEnvironmentVariable("GLOME_BRIDGE_DIR") ?? Path.Combine(OS.GetUserDataDir(), "glome-bridge"))),
             "editor", "editor-latest", 0.3);
 
     public void Process(double delta, string? directory)

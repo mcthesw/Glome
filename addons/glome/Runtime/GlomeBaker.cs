@@ -1,6 +1,8 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Glome.Core;
 using Godot;
 
@@ -15,47 +17,75 @@ public enum BakeVisibility
 }
 public readonly record struct SurfaceTag(int Material, int Surface, TraversalFlags Traversal = TraversalFlags.TwoSided);
 
+/// <summary>Extraction callbacks run on the Godot thread. GroundMask must be a pure value predicate.</summary>
+public sealed record GlomeBakeOptions(
+    double? RadiusOverride = null,
+    BakeVisibility Visibility = BakeVisibility.HonoredUpToRoot,
+    Func<Material?, SurfaceTag>? ResolveMaterial = null,
+    Action<S3Anchor3D, S3Frame, Transform3D>? OnAnchor = null,
+    Action<int, CollisionShape3D, S3Frame, Transform3D>? OnProxy = null,
+    bool IncludeOwners = false,
+    Predicate<D4>? GroundMask = null);
+
 public static class GlomeBaker
 {
-    internal sealed record BakeInputs(double Radius, MeshSurface[] Surfaces, CollisionShapeAdapter.Input[] Proxies,
+    private sealed record BakeInputs(double Radius, MeshSurface[] Surfaces, CollisionShapeAdapter.Input[] Proxies,
         SurfaceTag Ground, EnvironmentBlock Environment, GlomeMaterials? Materials, GlomeLight[] Lights, bool TrackOwners);
 
-    internal sealed record MeshSurface(Vector3[] Vertices, Vector3[] Normals, Vector2[] Uvs, int[] Indices,
+    private sealed record MeshSurface(Vector3[] Vertices, Vector3[] Normals, Vector2[] Uvs, int[] Indices,
         S3Frame Frame, Transform3D Pose, Vector3 UvScale, Vector3 UvOffset, SurfaceTag Tag, bool Strip, int OwnerIndex);
 
-    internal sealed record BakeResult(BakedGeometry Geometry, S3CollisionWorld Collision, int[]? OwnerIndices);
+    private sealed record BakeResult(BakedGeometry Geometry, S3CollisionWorld Collision, int[]? OwnerIndices);
 
     public static S3BakeSnapshot Bake(S3Space3D space, double? radiusOverride = null,
         BakeVisibility visibility = BakeVisibility.HonoredUpToRoot, Func<Material?, SurfaceTag>? resolveMaterial = null,
         Action<S3Anchor3D, S3Frame, Transform3D>? onAnchor = null,
         Action<int, CollisionShape3D, S3Frame, Transform3D>? onProxy = null, bool includeOwners = false)
+        => Bake(space, new GlomeBakeOptions(radiusOverride, visibility, resolveMaterial, onAnchor, onProxy, includeOwners));
+
+    public static S3BakeSnapshot Bake(S3Space3D space, GlomeBakeOptions? options)
     {
-        var inputs = ExtractInputs(space, radiusOverride, visibility, resolveMaterial, onAnchor, onProxy, includeOwners,
-            out var owners);
-        return Publish(space, inputs, BakeCore(inputs), owners);
+        options ??= new();
+        space.BeginBake();
+        var inputs = ExtractInputs(space, options, out var owners);
+        return Publish(space, inputs, BakeCore(inputs, options.GroundMask), owners);
+    }
+
+    /// <summary>Call on the Godot main thread. Only captured values are processed on the worker.</summary>
+    public static async Task<S3BakeSnapshot> BakeAsync(S3Space3D space, GlomeBakeOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        options ??= new();
+        long generation = space.BeginBake();
+        var inputs = ExtractInputs(space, options, out var owners);
+        var mask = options.GroundMask;
+        var result = await Task.Run(() => BakeCore(inputs, mask), cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!GodotObject.IsInstanceValid(space) || space.BakeGeneration != generation)
+            throw new OperationCanceledException("Space was freed or its bake was superseded.");
+        return Publish(space, inputs, result, owners);
     }
 
     // Visibility governs meshes. Enabled collision shapes remain physical even on hidden nodes.
-    internal static BakeInputs ExtractInputs(S3Space3D space, double? radiusOverride, BakeVisibility visibility,
-        Func<Material?, SurfaceTag>? resolveMaterial, Action<S3Anchor3D, S3Frame, Transform3D>? onAnchor,
-        Action<int, CollisionShape3D, S3Frame, Transform3D>? onProxy, bool includeOwners, out Node3D[]? owners)
+    private static BakeInputs ExtractInputs(S3Space3D space, GlomeBakeOptions options, out Node3D[]? owners)
     {
-        double radius = radiusOverride ?? space.Radius;
-        if (!double.IsFinite(radius) || radius <= 0) throw new ArgumentOutOfRangeException(nameof(radiusOverride));
+        double radius = options.RadiusOverride ?? space.Radius;
+        if (!double.IsFinite(radius) || radius <= 0) throw new ArgumentOutOfRangeException(nameof(options.RadiusOverride));
         var surfaces = new List<MeshSurface>();
         var lights = new List<GlomeLight>();
         var proxies = new List<CollisionShapeAdapter.Input>();
-        List<Node3D>? sources = includeOwners ? [] : null;
+        List<Node3D>? sources = options.IncludeOwners ? [] : null;
 
-        var native = resolveMaterial == null ? new NativeMaterialTable() : null;
-        var resolve = resolveMaterial ?? native!.Resolve;
+        var native = options.ResolveMaterial == null ? new NativeMaterialTable() : null;
+        var resolve = options.ResolveMaterial ?? native!.Resolve;
         VisitChart(space, null, S3Frame.Identity, Transform3D.Identity, space.Visible);
         var env = space.Environment ?? new S3Environment();
         var ground = env.GroundMaterial != null && space.EquatorialGroundEnabled && env.EquatorialGroundEnabled
             ? resolve(env.GroundMaterial) : new SurfaceTag(0, 0);
         var environment = env.Capture(space.EquatorialGroundEnabled ? ground.Material : -1);
         owners = sources?.ToArray();
-        return new(radius, surfaces.ToArray(), proxies.ToArray(), ground, environment, native?.Finish(), lights.ToArray(), includeOwners);
+        return new(radius, surfaces.ToArray(), proxies.ToArray(), ground, environment, native?.Finish(), lights.ToArray(), options.IncludeOwners);
 
         void VisitChart(Node root, S3Anchor3D? owner, S3Frame frame, Transform3D transform, bool visible)
         {
@@ -67,7 +97,7 @@ public static class GlomeBaker
             foreach (var (anchor, inheritedVisibility) in nested)
             {
                 var chart = anchor.ChartPose(radius);
-                onAnchor?.Invoke(anchor, chart.Frame, chart.Pose);
+                options.OnAnchor?.Invoke(anchor, chart.Frame, chart.Pose);
                 VisitChart(anchor, anchor, chart.Frame, chart.Pose, inheritedVisibility);
             }
 
@@ -86,18 +116,18 @@ public static class GlomeBaker
 
                     var pose = child is Node3D node ? parentPose * node.Transform : parentPose;
                     if (child is MeshInstance3D { Mesh: not null, Visible: true } mesh &&
-                        (childVisible || visibility == BakeVisibility.SelfVisible))
+                        (childVisible || options.Visibility == BakeVisibility.SelfVisible))
                     {
                         ExtractSurfaces(mesh, pose, frame, resolve, surfaces, sources?.Count ?? -1);
                         sources?.Add((Node3D?)owner ?? mesh);
                     }
-                    if (child is Light3D { Visible: true } light && (childVisible || visibility == BakeVisibility.SelfVisible) &&
+                    if (child is Light3D { Visible: true } light && (childVisible || options.Visibility == BakeVisibility.SelfVisible) &&
                         GlomeLight.FromNode(light, frame, pose, radius) is { } record)
                         lights.Add(record);
                     if (child is CollisionShape3D { Disabled: false } shape &&
                         CollisionShapeAdapter.Capture(frame, pose, shape.Shape) is { } proxy)
                     {
-                        onProxy?.Invoke(proxies.Count, shape, frame, pose);
+                        options.OnProxy?.Invoke(proxies.Count, shape, frame, pose);
                         proxies.Add(proxy);
                     }
                     Walk(child, pose, childVisible);
@@ -132,7 +162,7 @@ public static class GlomeBaker
         }
     }
 
-    internal static BakeResult BakeCore(BakeInputs inputs, Predicate<D4>? groundMask = null)
+    private static BakeResult BakeCore(BakeInputs inputs, Predicate<D4>? groundMask = null)
     {
         var triangles = new List<GeodesicTriangle>();
         List<int>? owners = inputs.TrackOwners ? [] : null;
@@ -152,7 +182,7 @@ public static class GlomeBaker
         return new(geometry, new(inputs.Radius, proxies, floor), indices);
     }
 
-    internal static S3BakeSnapshot Publish(S3Space3D space, BakeInputs inputs, BakeResult result, Node3D[]? sources)
+    private static S3BakeSnapshot Publish(S3Space3D space, BakeInputs inputs, BakeResult result, Node3D[]? sources)
     {
         var owners = result.OwnerIndices is { } indices ? Array.ConvertAll(indices, index => sources![index]) : null;
         return space.Publish(result.Geometry, result.Collision, owners, inputs.Materials, inputs.Lights, inputs.Environment);

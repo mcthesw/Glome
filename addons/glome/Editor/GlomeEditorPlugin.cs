@@ -15,7 +15,7 @@ public partial class GlomeEditorPlugin : EditorPlugin, ISerializationListener
     private GlomeInspectorPlugin? inspector;
     private bool visible;
     private int generation;
-    /// <summary>Local bridge directory. Null uses .local/glome-bridge beside the project directory.</summary>
+    /// <summary>Local bridge directory. Defaults to GLOME_BRIDGE_DIR or glome-bridge in the project user data directory.</summary>
     public static string? BridgeDirectory { get; set; }
     public static Func<GlomeEditorPlugin, Task<(bool Ok, string Message)>>? BridgeShaderReload { get; set; }
     private Godot.Collections.Dictionary deferredState = new();

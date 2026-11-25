@@ -50,8 +50,11 @@ public partial class S3Space3D : Node3D
 
     internal void CamerasChanged(S3Camera3D? camera) => _session?.CamerasChanged(camera);
     internal event Action? BakeInvalidated;
+    internal long BakeGeneration { get; private set; }
+    internal long BeginBake() => ++BakeGeneration;
     public void RequestRebake()
     {
+        BakeGeneration++;
         _rebake = _session != null;
         BakeInvalidated?.Invoke();
     }
