@@ -1,0 +1,159 @@
+---
+title: "Compute ABI"
+description: "Set 0 ABI 1 descriptor bindings, RFC-style byte layouts, shader headers, traversal hooks, and Set 1 extensions."
+---
+
+import AbiRecordDiagram from '../../../components/diagrams/AbiRecordDiagram.astro';
+
+**Set 0 ABI 1** fixes 15 Vulkan descriptor bindings and a 96-byte `Camera` push constant in [`glome_abi.glslinc`](https://github.com/mcthesw/Glome/blob/main/addons/glome/Shaders/glome_abi.glslinc). `GlomeBuffers` verifies the size and every field offset of its seven C# structs at startup. Custom shaders share this layout with `glome_standard.glsl`.
+
+## Set 0 descriptors
+
+| Binding | GLSL symbol | Descriptor | Stride / format | Contents |
+| --- | --- | --- | --- | --- |
+| 0 | `output_image` | `writeonly image2D` | `rgba8` | Output pixel image (RGBA8 UNORM) |
+| 1 | `Faces` | `readonly buffer` (`std430`) | `160 B` | `Triangle tris[]` in BVH order |
+| 2 | `Tree` | `readonly buffer` (`std430`) | `32 B` | `CapNode nodes[]`, flattened spherical-cap BVH |
+| 3 | `Materials` | `readonly buffer` (`std430`) | `48 B` | `MaterialRecord material_records[]` |
+| 4 | `Diagnostics` | `buffer` (`std430`) | `64 B` | `Diagnostic probes[]`, host input rays and hit outputs |
+| 5 | `Lights` | `readonly buffer` (`std430`) | `16 + 32n B` | 16 B `uvec4 light_counts` header + `LightRecord lights[]` |
+| 6 | `Environment` | `uniform Environment` (`std140`) | `80 B` | Environment uniform block `env` |
+| 7 | `bank0` | `texture2DArray` | sRGB RGBA8 | Albedo texture bank 0 |
+| 8 | `bank1` | `texture2DArray` | sRGB RGBA8 | Albedo texture bank 1 |
+| 9 | `bank2` | `texture2DArray` | sRGB RGBA8 | Albedo texture bank 2 |
+| 10 | `bank3` | `texture2DArray` | sRGB RGBA8 | Albedo texture bank 3 |
+| 11 | `nearest_repeat` | `sampler` | linear mips | Nearest filtering, repeat UV |
+| 12 | `linear_repeat` | `sampler` | linear mips | Linear filtering, repeat UV |
+| 13 | `nearest_clamp` | `sampler` | linear mips | Nearest filtering, clamp to edge |
+| 14 | `linear_clamp` | `sampler` | linear mips | Linear filtering, clamp to edge |
+| Push | `Camera` | `push_constant` (`std430`) | `96 B` | Camera frame, lens, and dispatch dimensions (`camera`) |
+
+Workgroups are `8 × 8 × 1` (rounded up to cover the viewport, so check `camera.dims.xy` bounds). Unused texture banks bind a 1×1 white layer.
+
+## Record layouts
+
+Each row below is 16 bytes (four 32-bit words). C# records use sequential layout with `Pack = 4`.
+
+### CameraPush (96 B)
+
+<AbiRecordDiagram record="CameraPush" />
+
+`right`, `up`, `back`, `pos` form the unit camera frame in $\mathbb{R}^4$. `lens` holds `(R, tan(fov/2), elapsedSeconds, 0)`. `dims` holds `(width, height, bvhNodeCount, probeCount)`; `probeCount == 0` selects image rendering.
+
+### TriangleRecord (160 B)
+
+<AbiRecordDiagram record="TriangleRecord" />
+
+`plane` is the supporting great-sphere normal; `dual0..2` evaluate spherical barycentrics. `inv_k_material` packs `(1/K_A, 1/K_B, 1/K_C, materialIndex)`. `uv01` packs A/B UVs; `uv2` packs `(uC, vC, surfaceId, traversalFlags)` as floats. `n0..2` are projected vertex normals.
+
+### CapRecord (32 B)
+
+<AbiRecordDiagram record="CapRecord" />
+
+`center` is the unit spherical-cap center in $\mathbb{R}^4$. `bounds` packs `(\cos\alpha, firstTriangle, triangleCount, escapeIndex)` as floats (`triangleCount == 0` on interior nodes).
+
+### ProbeRecord (64 B)
+
+<AbiRecordDiagram record="ProbeRecord" />
+
+Host writes ray origin `p` and tangent `d`; shader writes `ids = (kind, id)` (`0` miss, `1` ground, `2` triangle; `-1` ID for miss/ground), `angle` (rad), and `u, v`.
+
+### MaterialRecord (48 B)
+
+<AbiRecordDiagram record="MaterialRecord" />
+
+`base_color` is linear RGBA; `emission_roughness` is linear emission RGB + roughness. `albedo_ref` packs texture bank in high 8 bits and layer in low 24 bits (`0xffffffffu` = no texture).
+
+### LightRecord (32 B)
+
+<AbiRecordDiagram record="LightRecord" />
+
+The `Lights` SSBO begins with a 16-byte `uvec4 light_counts` header (`Directional`, `ShadowedDirectional`, `Omni`, `ShadowedOmni` in order), followed by 32-byte records starting at byte `16 + 32i` (so `lights[2]` starts at byte `80`). `radiance_cutoff.w` is `-1` for directional lights or $\cos(\operatorname{clamp}(\text{range}/R, 0, \pi))$ for omni lights.
+
+### EnvironmentBlock (80 B)
+
+<AbiRecordDiagram record="EnvironmentBlock" />
+
+Colors are linear RGB. `fog_density.w` is density per metre. `mode_ground_mat.xy` holds `(shadingMode, groundMaterialIndex)` (`< 0` disables equatorial ground). `ground_uv_xform` packs UV scale XY and offset ZW.
+
+## Material and traversal flags
+
+| Field | Mask | Bits |
+| --- | --- | --- |
+| `MaterialRecord.Flags` | `0x01` | `Unshaded` |
+| `MaterialRecord.Flags` | `0x06` | `CullMode << 1` (`0` back, `2` front, `4` disabled; traversal uses triangle flags) |
+| `MaterialRecord.Flags` | `0x08` | `Nearest` filter (clear = linear) |
+| `MaterialRecord.Flags` | `0x10` | `Clamp` UV (clear = repeat) |
+| `MaterialRecord.Flags` | `0x20` | `DisableMips` (force LOD 0) |
+| `TraversalFlags` (`uv2.w`) | `0x03` | `CullMask`: `CullBack = 0`, `CullFront = 1`, `TwoSided = 2` |
+| `TraversalFlags` (`uv2.w`) | `0x04` | `Cutout` (alpha-scissor test at mip 0) |
+
+## Set 1 and specialization
+
+`S3RenderProgram.CaptureSet1` returns `ProgramBuffer[]` (`UniformBuffer` or `StorageBuffer`), bound consecutively at Set 1 binding `0, 1, ...` on construction and `Rebuild`. `UpdateProgramBuffer(binding, bytes)` overwrites from offset `0` in place.
+
+Each entry in `SpecializationValues` compiles one pipeline specializing **constant ID 0**; `Draw(..., pipeline: i)` selects the 0-based array index.
+
+## Shader headers
+
+Include in this order:
+
+```glsl title="glome_standard.glsl"
+#[compute]
+#version 450
+#include "res://addons/glome/Shaders/glome_abi.glslinc"
+#include "res://addons/glome/Shaders/glome_camera.glslinc"
+#include "res://addons/glome/Shaders/glome_intersections.glslinc"
+#include "res://addons/glome/Shaders/glome_lighting.glslinc"
+```
+
+`glome_abi.glslinc` defines descriptors, structs, `PI`, `TAU`, `RAY_MIN = 0.00001`, and `Hit { int kind, id; float t; vec2 uv; vec3 weights; }`.
+
+### glome_camera.glslinc
+
+| Function | Purpose |
+| --- | --- |
+| `vec2 screen_uv(ivec2 pixel)` | Pixel center in `(-1, 1)` |
+| `vec4 pixel_direction(vec2 uv)` | Unit view ray tangent (`forward = -back`, screen Y down) |
+| `void write_probe(int i, Hit h)` | Write hit kind, ID, angle, and UV into `probes[i]` |
+
+### glome_intersections.glslinc
+
+| Function | Purpose |
+| --- | --- |
+| `vec4 sample_bank(texture2DArray bank, vec3 uv, uint flags, float lod)` | Sample array layer `uv.z` using material sampler flags |
+| `vec4 material_sample(MaterialRecord m, vec2 uv, float footprint)` | `base_color × albedo` with footprint-derived mip LOD |
+| `ivec2 texel_address(ivec2 p, ivec2 size, bool clamped)` | Clamp or wrap integer texel coordinates |
+| `float base_alpha(texture2DArray bank, int layer, vec2 uv, uint flags)` | Level-0 alpha (nearest or explicit bilinear) |
+| `bool covered(MaterialRecord m, vec2 uv)` | Alpha-scissor coverage test (`alpha >= alpha_cutoff`) |
+| `vec3 chart_weights(int j, vec3 beta)` | Inverse-K corrected barycentric weights |
+| `vec2 triangle_uv(int j, vec3 w)` | Interpolated triangle UV |
+| `float first_root(float a, float b, float lo)` | Forward root of $a\cos t + b\sin t = 0$ (`10.0` if degenerate) |
+| `bool cap_hits(CapNode node, vec4 start, vec4 tangent, vec2 end_cs)` | Arc vs. spherical-cap intersection test |
+| `Hit trace(vec4 p, vec4 d, float lo, float hi, bool any_hit, int ignore)` | Trace `[lo, hi]` ($\le \pi$); skips triangle `ignore` (`-1` = none) |
+| `float uv_footprint(Triangle tri, vec4 x, vec2 uv, float angular)` | Estimated UV footprint for mip selection |
+| `vec4 bump_from_uv(Triangle tri, vec4 x, vec4 n, vec2 uv, vec2 dh)` | Perturb tangent normal from UV height derivatives |
+| `vec4 smooth_normal(Triangle tri, vec3 weights, vec4 x)` | Interpolated tangent normal (falls back to `tri.plane`) |
+| `Hit trace_primary(vec4 p, vec4 d)` | Trace `[RAY_MIN, π]`; if floorless and missed, continues from `(-p, -d)` up to `2π` |
+
+### glome_lighting.glslinc
+
+| Function | Purpose |
+| --- | --- |
+| `vec4 light_direction(vec4 x, vec4 source, out float angle)` | Unit tangent toward `source` and geodesic `angle` (rad) |
+| `bool light_visible(vec4 x, vec4 geometric, vec4 source, int ignore)` | Geodesic shadow ray visibility test |
+| `vec3 direct_light(MaterialRecord m, vec3 albedo, vec4 n, vec4 v, vec4 l)` | Diffuse + GGX/Smith/Schlick direct lighting |
+| `vec3 geodesic_fog(vec3 color, float angle)` | Exponential fog blend with $e^{-\rho R\theta}$ |
+
+## Traversal hooks
+
+Define before `#include "glome_intersections.glslinc"`. `trace` runs them in this order (for both primary and shadow rays):
+
+| Hook | Call site |
+| --- | --- |
+| `GLOME_GROUND_HOLE(x)` | On equatorial crossing before ground coverage; return `true` to open a hole (pair with CPU `GroundMask(x) = !hole(x)`). |
+| `GLOME_OPAQUE_TWO_SIDED` | Skips ground alpha coverage, triangle face culling, and triangle alpha coverage. |
+| `GLOME_ANALYTIC_HIT(p,d,lo,any_hit,h)` | Between ground and BVH; update `h` respecting `[lo, h.t]` and `any_hit`. |
+| `GLOME_EXCLUDE_CANDIDATE(j)` | After triangle containment, before depth/cull/cutout checks; return `true` to skip triangle `j`. |
+
+For host-side packing and renderer methods, see [Resources and runtime](/reference/resources-and-runtime/).

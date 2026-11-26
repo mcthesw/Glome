@@ -1,0 +1,29 @@
+---
+title: "Minimal walkthrough"
+description: "See how Minimal.tscn maps scene nodes to what you see on screen, and move a gate around the 3-sphere."
+---
+
+Open `res://addons/glome/Examples/Minimal.tscn` and press **F6**. In the opening view, the red ring on the teal plinth is `Orrery`, the square pedestal on the left is `Satellite`, and the pale two-pier arches in the distance are seven instances of `Meridian.tscn`.
+
+![Opening view of Minimal.tscn showing Satellite on the left, the red Orrery ring in the center, and instanced gates beyond.](/media/minimal-layer1-standard.webp)
+
+## What is in the scene tree
+
+| Node | Role |
+| --- | --- |
+| `MeridianGallery` | `S3Space3D` root (`Radius = 14.0`) using the `Daylight` `S3Environment` (`AmbientEnergy = 0.44`, `FogDensity = 0.047`) and textured `Paving` ground. |
+| `Sun` | Root `DirectionalLight3D` with shadows enabled. |
+| `Orrery` | `S3Anchor3D` at `(0, 0, -4.4)` holding the central plinth, ring, globe, cylinder collider, and local `OmniLight3D`. |
+| `Satellite` | `S3Anchor3D` at `(-2.35, 0, -5.6)` holding the left pedestal, globe, and matching box collider. |
+| `Meridian1`–`Meridian7` | Seven instances of `Meridian.tscn` placed by spherical angles around the gallery. Each pier has a box collider. |
+| `Walker/Eye` | `S3CharacterController` at the origin with its direct `S3Camera3D` child (`Fov = 70°`). |
+
+## Move one gate
+
+Each `Meridian` instance sets `ChartPlacement = SphericalAngles`: `PolarDegrees` controls how far it sits from the origin along the ground, and `BearingDegrees` picks its compass direction (`0°` toward `+Z`, `90°` toward `+X`).
+
+1. Press **F8** to stop the running scene, switch to the **S³** editor tab, and select `Meridian1` (`PolarDegrees = 32°`, `BearingDegrees = 153°`).
+2. Keep `PolarDegrees` at `32°`, change `BearingDegrees` to `175°`, and click **Rebake**.
+3. The gate moves horizontally across your view while keeping the same ground distance ($14 \times 32\pi/180 \approx 7.82\text{ m}$).
+
+The seven gates span `PolarDegrees` from `32°` (`Meridian1`, 7.82 m) out to **`170°`** (`Meridian5`, 41.54 m — only 10° short of the origin's antipode). [Why distant gates look large](/authoring/s3-intuition/)

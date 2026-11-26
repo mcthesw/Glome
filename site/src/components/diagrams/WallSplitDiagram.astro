@@ -1,0 +1,208 @@
+---
+import '../../styles/instruments.css';
+interface Props { lang?: 'en' | 'zh-CN' }
+const zh = Astro.props.lang === 'zh-CN';
+
+// 9 posts placed every 2 m along a 16 m wall: -8, -6, -4, -2, 0, +2, +4, +6, +8 m
+const authored = [-8, -6, -4, -2, 0, 2, 4, 6, 8];
+const initialR = 14;
+const xMin = -8.6;
+const xMax = 8.6;
+const mapX = (m: number) => ((m - xMin) / (xMax - xMin)) * 400;
+const pctX = (m: number) => ((m - xMin) / (xMax - xMin)) * 100;
+
+function computeRows(R: number) {
+  const single = authored.map(x => R * Math.atan(x / R));
+  const halfCenter = R * Math.atan(4 / R);
+  const split = authored.map(x => {
+    if (x < 0) return -halfCenter + R * Math.atan((x + 4) / R);
+    if (x > 0) return halfCenter + R * Math.atan((x - 4) / R);
+    return 0;
+  });
+  return {
+    single,
+    split,
+    halfCenter,
+    singleOuterSpan: single[8] - single[7],
+    splitOuterSpan: split[8] - split[7],
+  };
+}
+
+const init = computeRows(initialR);
+const ticks = [-8, -4, 0, 4, 8];
+---
+<gl-wall-split class="gl-figure not-content">
+  <div class="tracks">
+    <div class="track-row">
+      <div class="row-head">
+        <span>{zh ? '设计间距' : 'Authored in Godot'}</span>
+        <span class="metric">{zh ? '每格 2.00 m' : '2.00 m spans'}</span>
+      </div>
+      <svg class="ruler" viewBox="0 0 400 28" aria-label={zh ? '设计间距每格 2.00 米。' : 'Authored 2.00 m post spacing.'}>
+        {ticks.map(m => (
+          <line x1={mapX(m).toFixed(1)} y1="0" x2={mapX(m).toFixed(1)} y2="28" stroke="var(--gl-border)" stroke-dasharray={m === 0 ? undefined : '2 3'} />
+        ))}
+        <line x1={mapX(-8).toFixed(1)} y1="14" x2={mapX(8).toFixed(1)} y2="14" stroke="var(--gl-text-muted)" stroke-width="1.5" />
+        {authored.map(m => (
+          <line x1={mapX(m).toFixed(1)} y1="5" x2={mapX(m).toFixed(1)} y2="23" stroke="var(--gl-text)" stroke-width="2" />
+        ))}
+      </svg>
+    </div>
+
+    <div class="track-row">
+      <div class="row-head">
+        <span>{zh ? '单锚点' : '1 anchor'}</span>
+        <span class="metric warn" data-metric="single">
+          {zh ? `最外柱距 ${init.singleOuterSpan.toFixed(2)} m` : `Outer span ${init.singleOuterSpan.toFixed(2)} m`}
+        </span>
+      </div>
+      <svg class="ruler" viewBox="0 0 400 28" aria-label={zh ? '单锚点下两端柱距收缩。' : 'Compressed outer post spans under 1 anchor.'}>
+        {ticks.map(m => (
+          <line x1={mapX(m).toFixed(1)} y1="0" x2={mapX(m).toFixed(1)} y2="28" stroke="var(--gl-border)" stroke-dasharray={m === 0 ? undefined : '2 3'} />
+        ))}
+        <line data-line="single" x1={mapX(init.single[0]).toFixed(1)} y1="14" x2={mapX(init.single[8]).toFixed(1)} y2="14" stroke="var(--gl-warn)" stroke-width="1.5" />
+        {init.single.map((m, i) => (
+          <line data-single={i} x1={mapX(m).toFixed(1)} y1="5" x2={mapX(m).toFixed(1)} y2="23" stroke={i === 0 || i === 8 ? 'var(--gl-warn)' : 'var(--gl-text)'} stroke-width="2" />
+        ))}
+        <circle cx={mapX(0).toFixed(1)} cy="14" r="3.6" fill="var(--gl-accent)" />
+      </svg>
+    </div>
+
+    <div class="track-row">
+      <div class="row-head">
+        <span>{zh ? '双锚点' : '2 anchors'}</span>
+        <span class="metric ok" data-metric="split">
+          {zh ? `最外柱距 ${init.splitOuterSpan.toFixed(2)} m` : `Outer span ${init.splitOuterSpan.toFixed(2)} m`}
+        </span>
+      </div>
+      <svg class="ruler" viewBox="0 0 400 28" aria-label={zh ? '双锚点拆分后柱距基本恢复均匀。' : 'Nearly uniform post spans after splitting across 2 anchors.'}>
+        {ticks.map(m => (
+          <line x1={mapX(m).toFixed(1)} y1="0" x2={mapX(m).toFixed(1)} y2="28" stroke="var(--gl-border)" stroke-dasharray={m === 0 ? undefined : '2 3'} />
+        ))}
+        <line data-line="split" x1={mapX(init.split[0]).toFixed(1)} y1="14" x2={mapX(init.split[8]).toFixed(1)} y2="14" stroke="var(--gl-accent)" stroke-width="1.5" />
+        {init.split.map((m, i) => (
+          <line data-split={i} x1={mapX(m).toFixed(1)} y1="5" x2={mapX(m).toFixed(1)} y2="23" stroke="var(--gl-text)" stroke-width="2" />
+        ))}
+        <circle data-anchor-l cx={mapX(-init.halfCenter).toFixed(1)} cy="14" r="3.6" fill="var(--gl-accent)" />
+        <circle data-anchor-r cx={mapX(init.halfCenter).toFixed(1)} cy="14" r="3.6" fill="var(--gl-accent)" />
+      </svg>
+    </div>
+
+    <div class="axis" aria-hidden="true">
+      {ticks.map(m => (
+        <span style={`left: ${pctX(m).toFixed(2)}%`}>{m > 0 ? `+${m}` : m} m</span>
+      ))}
+    </div>
+  </div>
+
+  <div class="slider-wrap">
+    <label class="gl-range">
+      <span>{zh ? '曲率半径 R' : 'Curvature radius R'}</span>
+      <span data-reading="radius">{initialR.toFixed(1)} m</span>
+      <input type="range" name="radius" min="8" max="36" step="0.5" value={initialR} aria-label={zh ? '曲率半径' : 'Curvature radius'} />
+    </label>
+  </div>
+</gl-wall-split>
+
+<script>
+  class WallSplit extends HTMLElement {
+    connectedCallback() {
+      const authored = [-8, -6, -4, -2, 0, 2, 4, 6, 8];
+      const zh = document.documentElement.lang === 'zh-CN';
+      const input = this.querySelector<HTMLInputElement>('input[name="radius"]')!;
+      const reading = this.querySelector('[data-reading="radius"]')!;
+      const singleMetric = this.querySelector('[data-metric="single"]')!;
+      const splitMetric = this.querySelector('[data-metric="split"]')!;
+      const singleLine = this.querySelector('[data-line="single"]')!;
+      const splitLine = this.querySelector('[data-line="split"]')!;
+      const anchorL = this.querySelector('[data-anchor-l]')!;
+      const anchorR = this.querySelector('[data-anchor-r]')!;
+      const mapX = (m: number) => ((m + 8.6) / 17.2) * 400;
+
+      const update = () => {
+        const R = input.valueAsNumber;
+        reading.textContent = `${R.toFixed(1)} m`;
+        const single = authored.map(x => R * Math.atan(x / R));
+        const halfCenter = R * Math.atan(4 / R);
+        const split = authored.map(x =>
+          x < 0 ? -halfCenter + R * Math.atan((x + 4) / R)
+            : x > 0 ? halfCenter + R * Math.atan((x - 4) / R) : 0
+        );
+        single.forEach((m, i) => {
+          const el = this.querySelector(`[data-single="${i}"]`)!;
+          const px = mapX(m).toFixed(1);
+          el.setAttribute('x1', px);
+          el.setAttribute('x2', px);
+        });
+        split.forEach((m, i) => {
+          const el = this.querySelector(`[data-split="${i}"]`)!;
+          const px = mapX(m).toFixed(1);
+          el.setAttribute('x1', px);
+          el.setAttribute('x2', px);
+        });
+        singleLine.setAttribute('x1', mapX(single[0]).toFixed(1));
+        singleLine.setAttribute('x2', mapX(single[8]).toFixed(1));
+        splitLine.setAttribute('x1', mapX(split[0]).toFixed(1));
+        splitLine.setAttribute('x2', mapX(split[8]).toFixed(1));
+        anchorL.setAttribute('cx', mapX(-halfCenter).toFixed(1));
+        anchorR.setAttribute('cx', mapX(halfCenter).toFixed(1));
+
+        const sOuter = single[8] - single[7];
+        const dOuter = split[8] - split[7];
+        singleMetric.textContent = zh
+          ? `最外柱距 ${sOuter.toFixed(2)} m`
+          : `Outer span ${sOuter.toFixed(2)} m`;
+        splitMetric.textContent = zh
+          ? `最外柱距 ${dOuter.toFixed(2)} m`
+          : `Outer span ${dOuter.toFixed(2)} m`;
+      };
+      input.addEventListener('input', update);
+    }
+  }
+  customElements.define('gl-wall-split', WallSplit);
+</script>
+
+<style>
+  .tracks {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .track-row {
+    display: grid;
+    gap: 0.2rem;
+  }
+  .row-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    font-size: var(--gl-fs-sm);
+    color: var(--gl-text-muted);
+  }
+  .metric {
+    font-family: var(--sl-font-mono);
+    color: var(--gl-text);
+  }
+  .metric.warn { color: var(--gl-warn); }
+  .metric.ok { color: var(--gl-accent); }
+  .ruler {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .axis {
+    position: relative;
+    height: 1.25rem;
+    margin-top: -0.25rem;
+    font-family: var(--sl-font-mono);
+    font-size: var(--gl-fs-sm);
+    color: var(--gl-text-muted);
+  }
+  .axis span {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .slider-wrap { margin-top: 1rem; max-width: 24rem; }
+</style>

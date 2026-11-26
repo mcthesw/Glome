@@ -1,0 +1,121 @@
+---
+title: "节点与可走形状"
+description: "S3Space3D、S3Anchor3D、S3Camera3D、S3CharacterController、WalkableBoxShape3D 与 S3AudioRig 参考。"
+---
+
+所有场景节点均位于 `Glome` 命名空间并继承 `Node3D`，距离单位为米。
+
+## S3Space3D
+
+| 属性 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `Radius` | `double` | `1` | 曲率半径 $R$（m），修改会触发重烘焙。人体尺度场景建议设为 `10`–`32`（默认 `1` 小于默认 `1.65 m` 眼高）。 |
+| `EquatorialGroundEnabled` | `bool` | `true` | $p_y = 0$ 解析赤道地面，须同时在 `Environment` 中启用。 |
+| `Environment` | `S3Environment` | `new()` | 烘焙时采集的环境资源。 |
+| `AutoStart` | `bool` | `true` | 进入场景树后自动烘焙并渲染，需在入树前设置。 |
+| `RenderProgram` | `S3RenderProgram?` | `null` | 启动时读取的自定义计算程序；留空使用内置标准渲染器。 |
+| `OutputTarget` | `TextureRect?` | `null` | 启动时读取的显示目标；留空时自动创建铺满视口的 `CanvasLayer`（层号 −1）。 |
+| `OutputMaterial` | `ShaderMaterial?` | `null` | 应用于输出矩形的后处理材质，运行时实时生效。 |
+| `ResolutionScale` | `float` | `1` | 渲染像素缩放倍数，运行时实时生效。 |
+| `DisplayFilter` | `CanvasItem.TextureFilterEnum` | `Linear` | 显示采样过滤方式，运行时实时生效。 |
+| `BakeVisibilityPolicy` | `BakeVisibility` | `HonoredUpToRoot` | 网格与灯光的可见性过滤策略（`HonoredUpToRoot` 或 `SelfVisible`）。 |
+| `LastBake` | `S3BakeSnapshot?` | `null` | 只读，最近一次发布的烘焙快照。 |
+| `BakeRevision` | `long` | `0` | 只读，每次发布从 `1` 起递增。 |
+| `OutputTexture` | `Texture2D?` | `null` | 只读，运行中的计算输出纹理。 |
+
+| 方法 | 作用 |
+| --- | --- |
+| `void RequestRebake()` | 请求在下一帧重新烘焙，并丢弃尚未完成的旧烘焙。 |
+| `protected virtual double ConstrainRadius(double value)` | 重写以在赋值前约束 `Radius`。 |
+| `protected virtual void OnRadiusChanged()` | `Radius` 更新后、调用 `RequestRebake()` 前触发。 |
+
+## S3Anchor3D
+
+定义局部切图标架及切图内的 `Transform3D`。
+
+| 属性 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `ChartPlacement` | `S3Anchor3D.PlacementMode` | `ParentChart` | 基础放置方式。 |
+| `RelativeSpin` | `double[]` | `[]` | 由 **S³** 操纵器写入的 8 个 double $\mathrm{Spin}(4)$ 位移（左 XYZW、右 XYZW）。 |
+| `BearingDegrees` | `double` | `0` | 方位角（`0°` 朝 `+Z`，`+90°` 朝 `+X`）。 |
+| `PolarDegrees` | `double` | `0` | `SphericalAngles` 模式的赤道极角（`0°`–`180°`）。 |
+| `ElevationDegrees` | `double` | `0` | 赤道行进后的仰角（`−90°`–`90°`）。 |
+| `ArcMetres` | `double` | `0` | `ArcMetres` 模式的赤道弧长（m）。 |
+| `LocalOffset` | `Vector3` | `Vector3.Zero` | 切向平移（m）；`ParentChart` 下等同 `Position`，绝对模式下配合 `Basis` 生效。 |
+| `EditorChartRadius` | `float` | `0` | 编辑器 **From 3D** 相机平滑过渡半径（m）。 |
+
+### PlacementMode
+
+| 值 | 模式 | 基础标架 |
+| --- | --- | --- |
+| 0 | `Origin` | `S3Frame.Identity` |
+| 1 | `Antipode` | `S3Frame.OnEquator(Math.PI, 0)` |
+| 2 | `PositiveX` | `(-D4.Back, D4.Up, -D4.Pole, D4.Right)` |
+| 3 | `NegativeX` | `(D4.Back, D4.Up, -D4.Pole, -D4.Right)` |
+| 4 | `PositiveZ` | `(D4.Right, D4.Up, -D4.Pole, D4.Back)` |
+| 5 | `NegativeZ` | `(-D4.Right, D4.Up, -D4.Pole, -D4.Back)` |
+| 6 | `SphericalAngles` | 沿 `BearingDegrees` 走 `PolarDegrees`，再按 `ElevationDegrees` 抬升 |
+| 7 | `ArcMetres` | 沿 `BearingDegrees` 走 `ArcMetres / R` 弧度，再抬升 |
+| 8 | `PositiveY` | `(D4.Right, -D4.Pole, D4.Back, D4.Up)` |
+| 9 | `NegativeY` | `(D4.Right, D4.Pole, D4.Back, -D4.Up)` |
+| 10 | `ParentChart` | 继承祖先锚点标架（或单位标架）并复合沿途 `Node3D` 变换 |
+
+| 方法 | 作用 |
+| --- | --- |
+| `S3Frame Frame(double radius)` | 含 `RelativeSpin` 的最终切图标架。 |
+| `(S3Frame Frame, Transform3D Pose) ChartPose(double radius)` | 最终标架与切图内位姿。 |
+| `(S3Frame Frame, Transform3D Pose) BasePose(double radius)` | 应用 `RelativeSpin` 前的标架与位姿。 |
+
+## S3Camera3D
+
+无当前 `S3Camera3D` 时，自动会话默认在 `new WalkPose(S3Frame.Identity, 0).Eye(Radius, 1.65)` 以 `70°` 垂直视场角渲染。
+
+| 属性 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `Fov` | `float` | `70` | 垂直视场角（度，`1°`–`179°`）。 |
+| `Current` | `bool` | `true` | 标记为所属 `S3Space3D` 的活动相机。 |
+
+| 方法 | 作用 |
+| --- | --- |
+| `S3Frame EyeFrame(double radius)` | 直接父节点为控制器时读取驱动视点，否则从继承切图计算相机位姿。 |
+
+## S3CharacterController
+
+作为当前 `S3Camera3D` 的直接父节点时自动绑定到碰撞世界；无赤道地面时以六自由度飞行启动。
+
+| 属性 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `BodyRadius` | `float` | `0.28` | 碰撞半径（m） |
+| `BodyHeight` | `float` | `1.8` | 站立高度（m） |
+| `EyeHeight` | `float` | `1.65` | 步行视点高度（m） |
+| `WalkSpeed` | `float` | `3.4` | 步行速度（m/s） |
+| `SprintSpeed` | `float` | `6.8` | 冲刺速度（m/s） |
+| `FlightSpeed` | `float` | `6.6` | 飞行速度（m/s） |
+| `MouseSensitivity` | `float` | `0.0022` | 每单位鼠标位移对应弧度 |
+| `CaptureMouseOnStart` | `bool` | `true` | 启用默认输入时启动即捕获鼠标 |
+| `EnableDefaultInput` | `bool` | `true` | 内置 `WASD`、鼠标视角与 `Esc` 切换捕获 |
+| `Flying` | `bool` | `false` | 只读，当前是否处于飞行模式 |
+
+| 方法 | 作用 |
+| --- | --- |
+| `void Move(Vector3 direction, double delta, bool sprint = false)` | 沿局部 X/Y/Z 移动（`Y` 在飞行模式生效）。 |
+| `void Look(Vector2 motion)` | 按 `MouseSensitivity` 应用偏航（`X`）与俯仰（`−Y`）。 |
+
+## WalkableBoxShape3D
+
+指定给 `CollisionShape3D.Shape` 并通过继承的 `BoxShape3D.Size` 设定尺寸。局部 `+Y` 顶面为可走台面（上台阶上限 `0.45 m`），侧面与底面保持实体；剪切后可作坡道或楼梯。
+
+## S3AudioRig
+
+| 属性 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `UseAudioCamera` | `bool` | `false` | 视口缺少活跃 3D 相机时在 `_Ready()` 前启用（自动创建 `CullMask = 0` 相机）。 |
+
+| 方法 | 作用 |
+| --- | --- |
+| `AudioStreamPlayer3D CreateVoice(string name, string bus, float gainDb, float maxDistance, float unitSize, AudioStreamPlayer3D.AttenuationModelEnum attenuation)` | 创建并初始化子级 3D 音频播放器。 |
+| `void Play(AudioStream stream, S3Frame listener, D4 source, double radius, AudioPathVoice direct, AudioPathVoice? complementary = null, D4? localFallback = null)` | 求解直达与可选反向绕行声路并调度播放。 |
+
+### AudioPathVoice
+
+`AudioPathVoice(AudioStreamPlayer3D Player, float GainDb, float Pitch = 1, double DelaySeconds = 0, float? DistanceOverride = null)` 配置单路声音（指定 `DistanceOverride` 时直接采用该距离，否则取 `max(0.15 m, 声路距离)`）。[空间音频示例](/zh-cn/advanced/spatial-audio/)

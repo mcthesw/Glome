@@ -1,0 +1,65 @@
+---
+title: "核心数学"
+description: "Glome.Core 双精度 S³ 标架、中心投影、球冠 BVH 求交、碰撞、运动与声路 API 参考。"
+---
+
+`Glome.Core` 全程使用 `double` 双精度。$S^3$ 上的点为 $\mathbb{R}^4$ 单位向量，切向量 $d$ 满足 $p \cdot d = 0$，角度单位均为**弧度**（米制弧长为 $R\theta$）。[核心库概览](/zh-cn/advanced/core-library/)
+
+## D2 与 D4
+
+`D2(double X, double Y)` 为只读记录结构体，支持 `+` 与标量 `*`；`D4(double X, double Y, double Z, double W)` 支持 `+`、`-`、`*`、`/`、索引器 `this[0..3]`，并提供单位轴 `D4.Right`（+X）、`Up`（+Y）、`Back`（+Z）、`Pole`（+W）。
+
+| 成员 | 含义 |
+| --- | --- |
+| `Dot(D4 b)` / `Length` | $\mathbb{R}^4$ 欧氏点积与模长 |
+| `Reject(D4 unit)` | 正交分量 $a - u(a \cdot u)$ |
+| `Unit()` | 单位化向量 |
+| `AngleTo(D4 unit)` | 测地夹角 $\operatorname{atan2}(\lVert q - p(p\cdot q)\rVert, p\cdot q) \in [0, \pi]$ |
+| `static Hodge(a, b, c)` | 与 `a, b, c` 正交的有向法向量（`Hodge(Right, Up, Back) == Pole`） |
+
+## ArcRay、S3Frame 与 WalkPose
+
+- `ArcRay(D4 P, D4 D)`：大圆射线，`At(t) = p cos t + d sin t`、`Tangent(t) = d cos t - p sin t`、`FirstRoot(a, b, lo)` 求 $a\cos t + b\sin t = 0$ 不小于 `lo` 的最小根。
+- `S3Frame(D4 Right, D4 Up, D4 Back, D4 P)`：有向正交归一标架（`Identity = (Right, Up, Back, Pole)`）。
+
+| `S3Frame` 成员 | 行为 |
+| --- | --- |
+| `Local(x, y, z)` | 按局部三轴合成切向量 |
+| `ExpMap(p, tangent)` | 从 `p` 沿 `tangent` 方向行进其模长弧度 |
+| `LogMap(p, q)` | 从 `p` 到 `q` 的最短切向位移（对跖点 $-p$ 处无唯一定义） |
+| `Travel(dir, angle)` / `Travel(dir, angle, ref needle)` | 沿测地线行进并平行移动各切轴（及可选 `needle`） |
+| `Yaw` / `Pitch` / `Roll` | 局部平面内弧度旋转 |
+| `OnEquator(polar, bearing)` | $p_y = 0$ 赤道地面上的标架（`0` 朝 `+Z`，$\pi/2$ 朝 `+X`；`polar == π` 精确为 `-D4.Pole`） |
+| `Orthonormalized()` | 重新正交归一化并以霍奇对偶重建 `Back` |
+
+- `WalkPose(S3Frame Ground, double Pitch, double Elevation = 0)`：`Eye(radius, eyeHeight)` 沿 `D4.Up` 抬升 `(Elevation + eyeHeight) / radius` 并应用俯仰；`LookingAt(...)` 朝向目标点。
+
+## S3ChartMath
+
+| 方法 | 行为 |
+| --- | --- |
+| `CentralProjection(chart, radius, offset, out scale)` | 切向偏移 `offset`（m）的球心投影：$h = p + v/R$，返回 $h / \lVert h \rVert$ 与 $\text{scale} = \lVert h \rVert$ |
+| `Apply(frame, q)` / `Compose(a, b)` / `Transpose(f)` | 4×4 正交标架矩阵运算 |
+| `Project(center, point, radius, out metres)` | 对数映射到局部 XYZ 米制坐标；角距离 $\ge \pi - 0.015$ 时返回 `false` |
+| `Lift(center, metres, radius)` | `Project` 的逆运算（经 `ExpMap`） |
+| `Encode(frame)` / `Decode(double[8])` | `S3Frame` 与规范 $\mathrm{Spin}(4)$ 双四元数 `(qL, qR)` 互转 |
+
+## GeodesicTriangle、SphericalCap 与 BakedGeometry
+
+- `ChartVertex.Project(chart, radius, offset, normal, uv)` 构造投影顶点 `ChartVertex(V, K, Uv, Normal)`。
+- `GeodesicTriangle(a, b, c, material, surface, traversal)` 预计算 `Plane`、`Dual0..2` 与包围 `SphericalCap`。`TraversalFlags` 组合 `CullBack = 0`、`CullFront = 1`、`TwoSided = 2`（掩码 `CullMask = 3`）与 `Cutout = 4`。
+- `CapBvhBuilder.Build(triangles)`（及带 `IList<T> owners` 重载）构建展平 `CapNode[]` 树并原地重排三角形与归属列表。
+- `BakedGeometry.Trace(ray, bruteForce = false, lo = RayStart, hi = null, ignoredTriangle = -1, filter = null, includeEquator = true)`：
+  - `RayStart = 1e-5` 弧度，返回 `RayHit(HitKind, Triangle, T, Uv)`。
+  - 启用地面且未设 `groundMask` 时默认 `hi = π`，否则 `2π`。
+  - 角距离相等时三角形优先于地面，三角形间取较小索引。
+
+## S3CollisionWorld 与 S3MotorCore
+
+- `CollisionProxy(chart, radius, transform, halfExtents, ProxyShape, walkableTop = false)` 表示投影后的实体 `Box` 或 `Cylinder`（`walkableTop` 将局部 `+Y` 标为可走台面）。
+- `S3CollisionWorld`：提供 `Radius`、`EquatorialGroundEnabled`、`ProxyCount`、`HasElevation`、`SupportHeight(ground, ceiling)`、`ReplaceProxy(id, proxy)`、`SweepSphere(ray, arc, bodyRadius, out first, out normal)`、`ClearPlacement` 与分步滑移 `Move`（子弧 $\le 0.18\text{ rad}$）。
+- `S3MotorCore(radius, arrival, BodyProfile, collision)`：管理步行/飞行（`Flying`、`Camera`、`Pitch`）、`SetWorld`、`Visit`、`ToggleFlight`、`FlyTo`、`ClearPlacement`、`Look`（步行俯仰限幅 `[-1.54, 1.54]` rad）与 `Move`。可走台面支持 `0.45 m` 上台阶与 `9.81 m/s²` 重力；即使水平输入为零也应传入 `seconds` 以驱动下落积分。
+
+## S3AcousticPath
+
+`S3AcousticPath.Resolve(listener, source, radius, localFallback = null)` 返回 `(LocalDirection, DirectDistance, ComplementaryDistance)`，两条反向声路长分别为 $R\theta$ 与 $R(2\pi - \theta)$；重合或对跖点时以 `localFallback ?? D4.Up` 为来向。[空间音频指南](/zh-cn/advanced/spatial-audio/)

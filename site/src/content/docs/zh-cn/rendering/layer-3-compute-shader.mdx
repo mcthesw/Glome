@@ -1,0 +1,122 @@
+---
+title: "自定义计算着色器"
+description: "基于 Set 0 公共契约编写自定义 Vulkan 计算着色器、通过 Set 1 传入宿主数据与扩展求交钩子。"
+---
+
+## 运行卡通着色示例
+
+将 [`cel.glsl`](https://github.com/mcthesw/Glome/blob/main/tests/standalone/cel.glsl) 与 [`Cel.tscn`](https://github.com/mcthesw/Glome/blob/main/tests/standalone/Cel.tscn) 复制到项目根目录，等待 Godot 导入 `cel.glsl` 后打开 `Cel.tscn` 并按 **F6**。场景实例化 `Minimal.tscn` 并通过 `S3RenderProgram` 指定 `res://cel.glsl`。
+
+![卡通着色下的 Minimal.tscn，红环带墨线轮廓，门柱呈明暗色阶。](/media/minimal-layer3-cel.webp)
+
+## 头文件包含顺序
+
+按以下顺序包含四个头文件即可接入 [Set 0 公共契约（ABI 1）](/zh-cn/reference/compute-abi/)（绑定 0–14 与 96 B 相机推送常量）：
+
+```glsl title="cel.glsl"
+#[compute]
+#version 450
+#include "res://addons/glome/Shaders/glome_abi.glslinc"
+#include "res://addons/glome/Shaders/glome_camera.glslinc"
+#include "res://addons/glome/Shaders/glome_intersections.glslinc"
+#include "res://addons/glome/Shaders/glome_lighting.glslinc"
+
+const vec3 ink = vec3(0.12, 0.14, 0.25);
+const vec3 paper = vec3(0.98, 0.91, 0.74);
+
+vec3 illustration(vec4 direction) {
+    Hit hit = trace_primary(camera.pos, direction);
+    if (hit.kind == 0) return paper;
+    vec4 point = normalize(camera.pos * cos(hit.t) + direction * sin(hit.t));
+    vec4 incoming = direction * cos(hit.t) - camera.pos * sin(hit.t);
+    vec4 normal = vec4(0, 1, 0, 0);
+    vec4 geometric = normal;
+    int id = env.mode_ground_mat.y;
+    if (hit.kind == 2) {
+        Triangle face = tris[hit.id];
+        id = int(face.inv_k_material.w);
+        normal = smooth_normal(face, hit.weights, point);
+        geometric = face.plane;
+    }
+    if (dot(geometric, incoming) > 0.0) geometric = -geometric;
+    if (dot(normal, geometric) < 0.0) normal = -normal;
+    vec3 paint = sqrt(material_sample(material_records[id], hit.uv, 0.0).rgb);
+    float light = 0.0;
+    if (light_counts.x + light_counts.y > 0u) {
+        float arc;
+        vec4 sun = light_direction(point, lights[0].source, arc);
+        light = max(dot(sun, normal), 0.0);
+        if (light > 0.0 && !light_visible(point, geometric, lights[0].source, hit.id))
+            light = 0.0;
+    }
+    vec3 shade = mix(ink, paint, 0.38);
+    vec3 midtone = mix(paint, paper, 0.12);
+    vec3 highlight = mix(paint, paper, 0.48);
+    vec3 color = light < 0.18 ? shade : (light < 0.70 ? midtone : highlight);
+    if (hit.kind == 2 && abs(dot(normal, incoming)) < 0.16) color = ink;
+    float aerial = 1.0 - exp(-0.035 * camera.lens.x * hit.t);
+    return mix(color, paper, aerial);
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(pixel, camera.dims.xy))) return;
+    vec4 direction = pixel_direction(screen_uv(pixel));
+    imageStore(output_image, pixel, vec4(illustration(direction), 1.0));
+}
+```
+
+工作组为 8×8，`main()` 过滤越界像素后调用 `trace_primary`（`hit.kind`：`0` 未命中、`1` 地面、`2` 三角形）并写入 `output_image`。
+
+## 通过 Set 1 传入宿主数据
+
+在头文件后声明 Set 1 缓冲区和可选特化常量 ID 0：
+
+```glsl title="cel.glsl（Set 1 扩展）"
+layout(std140, set = 1, binding = 0) uniform Palette {
+    vec4 paper_color;
+} palette;
+layout(constant_id = 0) const int ink_enabled = 1;
+```
+
+在创建渲染器（或空间进入场景树）前从 C# 配置 `S3RenderProgram`：
+
+```csharp title="CelPalette.cs"
+using System;
+using System.Runtime.InteropServices;
+using Glome;
+using Godot;
+
+static class CelPalette
+{
+    public static void Configure(S3RenderProgram program)
+    {
+        float[] paper = [0.98f, 0.91f, 0.74f, 1f];
+        program.CaptureSet1 = () =>
+        [
+            new ProgramBuffer(RenderingDevice.UniformType.UniformBuffer,
+                MemoryMarshal.AsBytes(paper.AsSpan()).ToArray())
+        ];
+        program.SpecializationValues = [1, 0];
+    }
+}
+```
+
+`CaptureSet1` 返回数组的下标即 Set 1 绑定号 `0, 1, ...`（支持 UBO / SSBO）。`SpecializationValues` 中每个值都会编译一条特化**常量 ID 0** 的管线（`pipeline: 0` 取 `1`，`pipeline: 1` 取 `0`）。排队上传期间不要就地修改返回的字节数组。
+
+## 编译期求交钩子
+
+在 `#include "glome_intersections.glslinc"` **之前**定义：
+
+| 宏 | 作用 |
+| --- | --- |
+| `GLOME_OPAQUE_TWO_SIDED` | 跳过面剔除与 alpha 裁剪（三角形与地面）。 |
+| `GLOME_ANALYTIC_HIT(p,d,lo,any_hit,h)` | 在地面与 BVH 之间注入自定义解析几何（遵守 `lo`、`h.t` 与 `any_hit`）。仅作用于 GPU，不自动影响 CPU 拾取与碰撞。 |
+| `GLOME_EXCLUDE_CANDIDATE(j)` | 返回 `true` 以跳过打包索引为 `j` 的三角形。 |
+| `GLOME_GROUND_HOLE(x)` | 对单位交点 `x` 返回 **`true` 表示挖洞**；CPU 对应的 `GlomeBakeOptions.GroundMask(x)` 返回 **`true` 表示保留地面**（符号互补）。地面总开关开启时，内置 `trace_primary` 上限仍为 $\pi$。 |
+
+## 热重载与导出
+
+自定义宿主可用布局兼容的 SPIR-V 调用 `await GlomeComputeRenderer.ReloadShader(spirv)`；替换失败时会保持原着色器继续工作。
+
+导出时 Godot 在导入阶段已将 `#include` 编入 SPIR-V，发布包可排除原始头文件（`exclude_filter="*.glslinc"`）。

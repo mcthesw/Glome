@@ -1,0 +1,58 @@
+---
+title: "Anchors and distortion"
+description: "Why long meshes compress near the edges of a tangent chart, how splitting across anchors fixes it, and how ChartPlacement works."
+---
+
+import WallSplitDiagram from '../../../components/diagrams/WallSplitDiagram.astro';
+
+## Why a long wall bunches up near its ends
+
+Godot models meshes in ordinary flat 3D coordinates. To place them on the 3-sphere, each `S3Anchor3D` opens a flat **tangent chart** centered at a point $p$ and projects vertices onto $S^3$ radially from the 4D origin (gnomonic projection).
+
+Near the anchor center, 1 metre in Godot is 1 metre on $S^3$. Farther from the center, each additional metre projects onto a shorter arc along $S^3$: $s(x) = R\arctan(x / R)$.
+
+Suppose you line up nine fence posts spaced **2.00 m** apart along a 16 m wall (`−8 m` to `+8 m`) inside a space with $R = 14\text{ m}$:
+
+- Under **one centered anchor**, the inner span is `1.99 m`, while the outer spans shorten to **`1.60 m`**.
+- Split across **two anchors** (each half authored locally from `−4 m` to `+4 m`, placed `3.90 m` from the seam on opposite bearings with the seam post authored once), the outer span recovers to **`1.91 m`**.
+
+<WallSplitDiagram />
+
+## When and how to split
+
+At tangent offset $r = \lVert v \rVert / R$, local radial scale drops by $r^2 / (1 + r^2)$. When $\lVert v \rVert = R / 3$, local radial compression reaches **10%** (`4.67 m` at $R = 14\text{ m}$). Selecting any anchor in the Inspector reports its farthest vertex distance, chart angle, and radial compression.
+
+To split the 16 m wall above at $R = 14\text{ m}$:
+
+1. Divide the mesh into two 8 m halves authored from `−4 m` to `+4 m`, placing the shared center post in one half only.
+2. Give each half its own `S3Anchor3D` with `ChartPlacement = ArcMetres`, `ArcMetres = 3.90` ($R\arctan(4/R)$), and opposite bearings (for example `BearingDegrees = -90` and `90`).
+3. Keep each half's vertices close to its own anchor origin.
+
+Nesting a child `S3Anchor3D` in `ParentChart` mode with a translated position keeps accumulating offsets in the parent chart rather than opening a fresh center.
+
+## Placement modes
+
+Common authoring modes for `S3Anchor3D.ChartPlacement` (on the equatorial ground, `BearingDegrees = 0°` points toward `+Z` and `90°` toward `+X`):
+
+| Mode | Use |
+| --- | --- |
+| `ParentChart` (default) | Inherit the nearest enclosing anchor's chart and compose intervening `Node3D` transforms. |
+| `SphericalAngles` | Travel `PolarDegrees` along `BearingDegrees`, then lift by `ElevationDegrees`. |
+| `ArcMetres` | Travel `ArcMetres` metres along `BearingDegrees`, then lift by `ElevationDegrees`. |
+
+The remaining eight preset modes (`Origin`, `Antipode`, and the six cardinal poles `PositiveX/Y/Z`, `NegativeX/Y/Z`) are listed in [PlacementMode reference](/reference/nodes/#placementmode).
+
+- **`LocalOffset`**: tangent translation in metres (paired with the anchor's `Basis` in absolute modes; mirrors `Position` in `ParentChart`).
+- **`RelativeSpin`**: $SO(4)$ displacement authored by the **S³** viewport gizmo, serialized as two unit quaternions (8 doubles: left XYZW, right XYZW).
+- **`EditorChartRadius`**: blend radius (m) used by the editor's **From 3D** camera action; does not alter baked geometry.
+
+## Projection math
+
+Given unit chart center $p$, transformed tangent offset $v$ (in metres), and curvature radius $R$, `ChartVertex.Project` maps vertices and inverse-transpose normals $n$ onto $S^3$ as:
+
+$$
+q = \frac{p + v/R}{\lVert p + v/R \rVert}, \qquad
+N = \frac{n - p(v \cdot n)/R}{\lVert n - p(v \cdot n)/R \rVert}.
+$$
+
+This preserves $N \cdot q = 0$ even for off-center or nonuniformly scaled meshes. [Editor workflow](/authoring/editor-workflow/)

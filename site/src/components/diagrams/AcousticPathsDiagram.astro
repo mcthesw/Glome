@@ -1,0 +1,118 @@
+---
+import '../../styles/instruments.css';
+interface Props { lang?: 'en' | 'zh-CN' }
+const zh = Astro.props.lang === 'zh-CN';
+const initialR = 14;
+const initialDeg = 60;
+const cx = 150;
+const cy = 96;
+const rad = 64;
+const theta = (initialDeg * Math.PI) / 180;
+const x = cx + rad * Math.sin(theta);
+const y = cy - rad * Math.cos(theta);
+const directArc = `M${cx} ${cy - rad} A${rad} ${rad} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}`;
+const wrapArc = `M${cx} ${cy - rad} A${rad} ${rad} 0 1 0 ${x.toFixed(1)} ${y.toFixed(1)}`;
+const directM = initialR * theta;
+const wrapM = initialR * (2 * Math.PI - theta);
+const delayMs = ((wrapM - directM) / 300) * 1000;
+---
+<gl-acoustic-lab class="gl-figure not-content">
+  <svg
+    class="plot acoustic-svg"
+    viewBox="0 0 300 190"
+    role="img"
+    aria-label={zh ? '听者 P 从相反方向收到来自声源 Q 的直达声和绕行声。' : 'Listener P receives sound from source Q along both the short arc (+d) and the opposite wrap-around arc (−d).'}
+  >
+    <circle cx={cx} cy={cy} r={rad} stroke="var(--gl-border)" fill="none" />
+    <path data-direct d={directArc} stroke="var(--gl-accent)" stroke-width="2.6" fill="none" />
+    <path data-wrap d={wrapArc} stroke="var(--gl-text-muted)" stroke-width="1.8" stroke-dasharray="5 4" fill="none" />
+    <circle cx={cx} cy={cy - rad} r="3.5" fill="var(--gl-text)" />
+    <text data-listener x={cx} y="18" text-anchor="middle">{zh ? '听者 P' : 'Listener P'}</text>
+    <circle cx={cx} cy={cy + rad} r="2.8" fill="var(--gl-text-muted)" />
+    <text data-antipode x={cx} y="178" text-anchor="middle" class="ink-muted">−P</text>
+    <circle data-source cx={x.toFixed(1)} cy={y.toFixed(1)} r="4.5" fill="var(--gl-accent)" stroke="var(--gl-surface)" stroke-width="1.5" />
+    <text data-source-label x={(x + 10).toFixed(1)} y={(y + 12).toFixed(1)}>Q</text>
+    <text x="198" y="34" class="ink-accent">+d</text>
+    <text x="86" y="34" class="ink-muted">−d</text>
+  </svg>
+
+  <div class="controls">
+    <label class="gl-range">
+      <span>{zh ? '曲率半径 R' : 'Curvature radius R'}</span>
+      <span data-reading="radius">{initialR.toFixed(1)} m</span>
+      <input type="range" name="radius" min="6" max="36" step="0.5" value={initialR} aria-label={zh ? '曲率半径' : 'Curvature radius'} />
+    </label>
+    <label class="gl-range">
+      <span>{zh ? '声源角距离 θ' : 'Source angle θ'}</span>
+      <span data-reading="degrees">{initialDeg}°</span>
+      <input type="range" name="degrees" min="0" max="180" step="1" value={initialDeg} aria-label={zh ? '声源角距离' : 'Source angle'} />
+    </label>
+  </div>
+
+  <dl class="gl-readouts">
+    <div><dt>{zh ? '直达声 (+d)' : 'Direct (+d)'}</dt><dd data-reading="direct">{directM.toFixed(2)} m</dd></div>
+    <div><dt>{zh ? '绕行声 (−d)' : 'Complementary (−d)'}</dt><dd data-reading="wrap">{wrapM.toFixed(2)} m</dd></div>
+    <div><dt>{zh ? '回声延迟 (300 m/s)' : 'Echo delay (300 m/s)'}</dt><dd data-reading="delay">{delayMs.toFixed(0)} ms</dd></div>
+  </dl>
+</gl-acoustic-lab>
+
+<script>
+  class AcousticLab extends HTMLElement {
+    connectedCallback() {
+      const zh = document.documentElement.lang === 'zh-CN';
+      const cx = 150, cy = 96, rad = 64;
+      const rIn = this.querySelector<HTMLInputElement>('input[name="radius"]')!;
+      const dIn = this.querySelector<HTMLInputElement>('input[name="degrees"]')!;
+      const directEl = this.querySelector('[data-direct]')!;
+      const wrapEl = this.querySelector('[data-wrap]')!;
+      const srcEl = this.querySelector('[data-source]')!;
+      const srcLabel = this.querySelector('[data-source-label]')!;
+      const listener = this.querySelector('[data-listener]')!;
+      const antipode = this.querySelector('[data-antipode]')!;
+      const read = (k: string) => this.querySelector(`[data-reading="${k}"]`)!;
+
+      const update = () => {
+        const R = rIn.valueAsNumber;
+        const deg = dIn.valueAsNumber;
+        const t = (deg * Math.PI) / 180;
+        const x = cx + rad * Math.sin(t);
+        const y = cy - rad * Math.cos(t);
+        const coincident = deg === 0;
+        const antipodal = deg === 180;
+
+        if (coincident) {
+          directEl.setAttribute('d', '');
+          wrapEl.setAttribute('d', `M${cx} ${cy - rad} A${rad} ${rad} 0 1 0 ${cx} ${cy + rad} A${rad} ${rad} 0 1 0 ${cx} ${cy - rad}`);
+        } else {
+          directEl.setAttribute('d', `M${cx} ${cy - rad} A${rad} ${rad} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}`);
+          wrapEl.setAttribute('d', `M${cx} ${cy - rad} A${rad} ${rad} 0 ${deg < 180 ? 1 : 0} 0 ${x.toFixed(1)} ${y.toFixed(1)}`);
+        }
+
+        srcEl.setAttribute('cx', x.toFixed(1));
+        srcEl.setAttribute('cy', y.toFixed(1));
+        srcLabel.setAttribute('x', (x + 10).toFixed(1));
+        srcLabel.setAttribute('y', (y + 12).toFixed(1));
+        srcLabel.textContent = coincident || antipodal ? '' : 'Q';
+        listener.textContent = coincident ? (zh ? '听者 P = Q' : 'Listener P = Q') : (zh ? '听者 P' : 'Listener P');
+        antipode.textContent = antipodal ? '−P = Q' : '−P';
+
+        const dM = R * t;
+        const wM = R * (2 * Math.PI - t);
+        read('radius').textContent = `${R.toFixed(1)} m`;
+        read('degrees').textContent = `${deg}°`;
+        read('direct').textContent = `${dM.toFixed(2)} m`;
+        read('wrap').textContent = `${wM.toFixed(2)} m`;
+        read('delay').textContent = `${(((wM - dM) / 300) * 1000).toFixed(0)} ms`;
+      };
+      this.addEventListener('input', update);
+    }
+  }
+  customElements.define('gl-acoustic-lab', AcousticLab);
+</script>
+
+<style>
+  .acoustic-svg {
+    max-width: 22rem;
+    margin-inline: auto;
+  }
+</style>

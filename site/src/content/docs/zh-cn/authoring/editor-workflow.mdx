@@ -1,0 +1,38 @@
+---
+title: "编辑器工作流"
+description: "在 S³ 主界面预览曲率、拾取几何、带撤销地移动锚点，以及等比缩放整个场景。"
+---
+
+打开包含 `S3Space3D` 的场景，点击 Godot 顶部的 **S³**。日常仍在普通 **3D** 视图中搭建局部构件，再切到 **S³** 视图检查球面轮廓与位置。
+
+![Godot S³ 主界面，场景树与检查器之间为实时光线追踪预览。](/media/editor-s3-mainscreen.webp)
+
+## 工具栏与视口操作
+
+| 工具栏控件 | 作用 |
+| --- | --- |
+| **Space** / **ViewMode** | 多空间场景下切换当前空间，并选择预览模式（`StandardLit`、`ClayClean`、`Unlit` 或自定义提供器）。 |
+| **Reset View** / **Focus (F)** | 复位视角与环绕中心，或在预览获焦时按 **F** 聚焦选中锚点。 |
+| **From 3D** | 将 3D 视图相机映射到 $S^3$，并在 `EditorChartRadius > 0` 的锚点附近平滑混合切图。 |
+| **Flip Antipode (180°)** | 跳至当前视点的对跖点并回望环绕中心。 |
+| **Rebake** / **Bookmarks** | 重新烘焙预览，或保存/恢复具名机位书签。 |
+
+| 预览区输入 | 操作 |
+| --- | --- |
+| 右键 + 鼠标、`WASD`、`Q`/`E` | 自由飞行（`Shift` 2.5 倍速，飞行时滚轮调节 2–32 m/s 速度）。 |
+| 中键拖动 / `Shift` + 中键拖动 | 环绕中心旋转 / 平移相机与环绕中心。 |
+| 滚轮 | 沿视线前后推拉。 |
+| 左键 | 通过球冠 BVH 拾取节点并更新环绕中心（点中地面则清空选中）。 |
+
+## 移动锚点与缩放场景
+
+选中场景中的 `S3Anchor3D` 会显示 $SO(4)$ 操纵器：拖 X/Z 箭头沿局部轴移动，拖中心手柄在局部 XZ 平面移动，拖圆环旋转偏航。松开左键后写入 `RelativeSpin`，支持撤销与重做。锚点落在视点对跖点附近（0.02 弧度内）时操纵器会自动隐藏，按 **F** 可重新取景。
+
+检查器在锚点上显示最远顶点距离、切图角和径向压缩，在 `S3Space3D` 上显示大圆周长、赤道距离与对跖距离。
+
+- 直接修改 **Radius**：仅改变曲率，保留原有米制坐标。
+- **Scale to → Scale Entire Scene**：将半径与全部米制场景参数按 $R_{\text{new}} / R_{\text{old}}$ 等比缩放（支持撤销，跳过嵌套空间与视口）。
+
+## 自动化接口
+
+如需从工具脚本控制预览或热重载编辑器着色器，`GlomeEditorPlugin` 提供 `TryGetViewState`、`SetView`、`FocusNode`、`RequestRebake`、`CapturePreviewImage`、`ReloadPreviewShader` 及文件桥接配置（`BridgeDirectory` / `BridgeShaderReload`）。[编辑器扩展 API](/zh-cn/reference/resources-and-runtime/)

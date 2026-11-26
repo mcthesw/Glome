@@ -1,0 +1,43 @@
+---
+title: "Post-processing"
+description: "Attach a Godot canvas_item shader to S3Space3D.OutputMaterial and tune resolution scaling or pixelation."
+---
+
+Use canvas post-processing when your effect only needs the rendered image (`TEXTURE`) and screen coordinates (`UV`).
+
+## Apply a palette grade
+
+1. Save [`grade.gdshader`](https://github.com/mcthesw/Glome/blob/main/tests/standalone/grade.gdshader) (below) into your project.
+2. Open `Minimal.tscn`, select `MeridianGallery`, assign a new `ShaderMaterial` to `OutputMaterial`, and attach `grade.gdshader`.
+3. Press **F6** to run. Adjust `shadows` or the `13.0` posterization steps to customize the look.
+
+```glsl title="grade.gdshader"
+shader_type canvas_item;
+render_mode unshaded;
+
+void fragment() {
+    vec3 source = texture(TEXTURE, UV).rgb;
+    float luma = dot(source, vec3(0.2126, 0.7152, 0.0722));
+    vec3 shadows = vec3(0.14, 0.09, 0.22);
+    vec3 mid = vec3(0.80, 0.43, 0.31);
+    vec3 light = vec3(1.0, 0.88, 0.64);
+    float stepped = floor(luma * 13.0 + 0.5) / 13.0;
+    vec3 grade = mix(shadows, mid, smoothstep(0.0, 0.55, stepped));
+    grade = mix(grade, light, smoothstep(0.46, 1.0, stepped));
+    float vignette = 1.0 - 0.18 * dot(UV - 0.5, UV - 0.5);
+    COLOR = vec4(mix(grade, source, 0.12) * vignette, 1.0);
+}
+```
+
+![Minimal.tscn graded with grade.gdshader.](/media/minimal-layer2-post.webp)
+
+## Output controls
+
+| `S3Space3D` property | Behavior |
+| --- | --- |
+| `OutputTarget` | Optional `TextureRect` assigned before startup to display inside your UI. When empty, Glome creates a full-rect `CanvasLayer` (`layer = -1`). |
+| `OutputMaterial` | `ShaderMaterial` applied to the display target; can be swapped live without rebaking geometry. |
+| `ResolutionScale` | Multiplies target pixel size (default `1.0`). |
+| `DisplayFilter` | `Linear` (default) or `Nearest` on the display target; updates live. |
+
+For **retro pixelation**, set `ResolutionScale = 0.5` and `DisplayFilter = Nearest`.

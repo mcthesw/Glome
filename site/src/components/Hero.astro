@@ -1,0 +1,175 @@
+---
+import DefaultHero from '@astrojs/starlight/components/Hero.astro';
+import { Icon } from '@astrojs/starlight/components';
+const { lang, siteTitleHref } = Astro.locals.starlightRoute;
+const home = Astro.url.pathname.replace(/\/$/, '') === siteTitleHref.replace(/\/$/, '');
+const zh = lang === 'zh-CN';
+const base = zh ? '/zh-cn/' : '/';
+---
+{home ? (
+  <section class="hero-plate">
+    <div class="intro">
+      <h1 id="_top" data-page-title>Glome</h1>
+      <p class="lede">
+        {zh
+          ? '面向 Godot 4.7（.NET、Vulkan 计算）的三维球面（S³）几何引擎。光线与声音沿大圆测地线传播。'
+          : 'An S³ non-Euclidean geometry engine for Godot 4.7 (.NET, Vulkan compute). Light and sound travel along great circles.'}
+      </p>
+      <div class="actions">
+        <a class="primary" href={base + 'getting-started/installation/'}>
+          {zh ? '开始安装' : 'Get Started'}
+          <Icon name="right-arrow" size="1rem" />
+        </a>
+        <a class="secondary" href={base + 'getting-started/quickstart/'}>
+          {zh ? '快速开始' : 'Quickstart'}
+        </a>
+      </div>
+    </div>
+    <figure class="exposure">
+      <div class="film">
+        <picture>
+          <source media="(prefers-reduced-motion: reduce)" srcset="/media/absent-sky-dusk-poster.webp" />
+          <img
+            src="/media/absent-sky-dusk-walk.webp"
+            alt={zh ? '《Absent Sky》三维球面黄昏走廊实机画面' : 'First-person walk through a curved dusk corridor in Absent Sky'}
+            width="640"
+            height="356"
+            fetchpriority="high"
+          />
+        </picture>
+        <button
+          type="button"
+          hidden
+          data-play={zh ? '播放' : 'Play'}
+          data-pause={zh ? '暂停' : 'Pause'}
+        >
+          <span></span>
+        </button>
+      </div>
+      <figcaption>
+        {zh
+          ? '实机画面采自使用 Glome 构建的《Absent Sky》。'
+          : 'Captured in Absent Sky, a game built with Glome.'}
+      </figcaption>
+    </figure>
+  </section>
+) : (
+  <DefaultHero />
+)}
+
+<script>
+  for (const film of document.querySelectorAll<HTMLElement>('.film')) {
+    const still = film.querySelector('source')!;
+    const button = film.querySelector('button')!;
+    const label = button.querySelector('span')!;
+    const motion = matchMedia('(prefers-reduced-motion: reduce)');
+    function showStill(on: boolean) {
+      still.media = on ? 'all' : 'not all';
+      label.textContent = (on ? button.dataset.play : button.dataset.pause)!;
+      button.setAttribute('aria-pressed', String(on));
+    }
+    showStill(motion.matches);
+    button.hidden = false;
+    button.addEventListener('click', () => showStill(still.media !== 'all'));
+    motion.addEventListener('change', () => showStill(motion.matches));
+  }
+</script>
+<style>
+  .hero-plate {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: 2.5rem 3.5rem;
+    padding-block: 2.5rem 1.5rem;
+  }
+  .intro {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-width: 0;
+  }
+  h1 {
+    margin: 0;
+    font-size: var(--gl-fs-2xl);
+    line-height: 1.1;
+    font-weight: 600;
+  }
+  .lede {
+    margin: 0;
+    max-width: 38ch;
+    color: var(--gl-text-muted);
+    font-size: var(--gl-fs-lg);
+    line-height: 1.5;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+  .actions a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.5rem;
+    padding: 0.5rem 1.1rem;
+    border-radius: 4px;
+    font-size: var(--gl-fs-base);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .actions .primary {
+    background: var(--gl-accent);
+    color: var(--gl-bg);
+  }
+  .actions .secondary {
+    background: var(--gl-surface);
+    color: var(--gl-text);
+  }
+  .actions .secondary:hover {
+    background: var(--gl-surface-alt);
+  }
+  .exposure {
+    margin: 0;
+    min-width: 0;
+  }
+  .film {
+    position: relative;
+    overflow: hidden;
+    border-radius: 6px;
+    background: var(--gl-surface);
+  }
+  .film img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .film button {
+    position: absolute;
+    inset: auto 0.75rem 0.75rem auto;
+    min-height: 2rem;
+    padding: 0 0.65rem;
+    border: 0;
+    border-radius: 4px;
+    background: var(--gl-bg);
+    color: var(--gl-text);
+    font-family: var(--sl-font);
+    font-size: var(--gl-fs-sm);
+    cursor: pointer;
+  }
+  .film button:hover {
+    background: var(--gl-surface-alt);
+  }
+  figcaption {
+    margin-top: 0.65rem;
+    color: var(--gl-text-muted);
+    font-size: var(--gl-fs-sm);
+    line-height: 1.5;
+  }
+  @media (min-width: 52rem) {
+    .hero-plate {
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      padding-block: 3.5rem 2rem;
+    }
+  }
+</style>

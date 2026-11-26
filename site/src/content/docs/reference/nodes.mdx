@@ -1,0 +1,121 @@
+---
+title: "Nodes and walkable shapes"
+description: "Reference for S3Space3D, S3Anchor3D, S3Camera3D, S3CharacterController, WalkableBoxShape3D, and S3AudioRig."
+---
+
+All scene nodes live in the `Glome` namespace and inherit `Node3D`. Distances are in metres.
+
+## S3Space3D
+
+| Property | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `Radius` | `double` | `1` | Curvature radius $R$ (m). Changing it triggers a rebake. For human-scale scenes, set around `10`–`32` (default `1` is smaller than default `1.65 m` eye height). |
+| `EquatorialGroundEnabled` | `bool` | `true` | Analytical ground at $p_y = 0$. Must also be enabled on `Environment`. |
+| `Environment` | `S3Environment` | `new()` | Environment captured at bake time. |
+| `AutoStart` | `bool` | `true` | Automatically bakes and renders in `_Ready()`. Set before entering the tree. |
+| `RenderProgram` | `S3RenderProgram?` | `null` | Custom compute program read at startup. Leave empty for built-in rendering. |
+| `OutputTarget` | `TextureRect?` | `null` | Display target read at startup. When empty, creates a full-rect `CanvasLayer` (`layer = -1`). |
+| `OutputMaterial` | `ShaderMaterial?` | `null` | Post-process material applied to the output rectangle; updates live. |
+| `ResolutionScale` | `float` | `1` | Render pixel multiplier (updates live). |
+| `DisplayFilter` | `CanvasItem.TextureFilterEnum` | `Linear` | Display sampling filter (updates live). |
+| `BakeVisibilityPolicy` | `BakeVisibility` | `HonoredUpToRoot` | Visibility filter for meshes and lights (`HonoredUpToRoot` or `SelfVisible`). |
+| `LastBake` | `S3BakeSnapshot?` | `null` | Read-only. Latest published bake snapshot. |
+| `BakeRevision` | `long` | `0` | Read-only. Increments from `1` on each published bake. |
+| `OutputTexture` | `Texture2D?` | `null` | Read-only. Compute output texture when running. |
+
+| Method | Behavior |
+| --- | --- |
+| `void RequestRebake()` | Schedules a rebake on the next process frame; any in-flight older bake is discarded. |
+| `protected virtual double ConstrainRadius(double value)` | Override to clamp proposed `Radius` values before assignment. |
+| `protected virtual void OnRadiusChanged()` | Hook invoked after `Radius` changes and before `RequestRebake()`. |
+
+## S3Anchor3D
+
+Establishes a local tangent chart frame and `Transform3D` inside that chart.
+
+| Property | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `ChartPlacement` | `S3Anchor3D.PlacementMode` | `ParentChart` | Base placement strategy. |
+| `RelativeSpin` | `double[]` | `[]` | Eight-double $\mathrm{Spin}(4)$ displacement (left XYZW, right XYZW) written by the **S³** gizmo. |
+| `BearingDegrees` | `double` | `0` | Compass bearing (`0°` → `+Z`, `+90°` → `+X`). |
+| `PolarDegrees` | `double` | `0` | Equatorial polar angle (`0°`–`180°`) for `SphericalAngles`. |
+| `ElevationDegrees` | `double` | `0` | Vertical angle (`−90°`–`90°`) after equatorial travel. |
+| `ArcMetres` | `double` | `0` | Equatorial distance (m) for `ArcMetres`. |
+| `LocalOffset` | `Vector3` | `Vector3.Zero` | Tangent translation (m). Mirrors `Position` in `ParentChart`; paired with `Basis` in absolute modes. |
+| `EditorChartRadius` | `float` | `0` | Blend radius (m) for the editor's **From 3D** camera transition. |
+
+### PlacementMode
+
+| Value | Mode | Base frame |
+| --- | --- | --- |
+| 0 | `Origin` | `S3Frame.Identity` |
+| 1 | `Antipode` | `S3Frame.OnEquator(Math.PI, 0)` |
+| 2 | `PositiveX` | `(-D4.Back, D4.Up, -D4.Pole, D4.Right)` |
+| 3 | `NegativeX` | `(D4.Back, D4.Up, -D4.Pole, -D4.Right)` |
+| 4 | `PositiveZ` | `(D4.Right, D4.Up, -D4.Pole, D4.Back)` |
+| 5 | `NegativeZ` | `(-D4.Right, D4.Up, -D4.Pole, -D4.Back)` |
+| 6 | `SphericalAngles` | `PolarDegrees` along `BearingDegrees`, then `ElevationDegrees` |
+| 7 | `ArcMetres` | `ArcMetres / R` radians along `BearingDegrees`, then `ElevationDegrees` |
+| 8 | `PositiveY` | `(D4.Right, -D4.Pole, D4.Back, D4.Up)` |
+| 9 | `NegativeY` | `(D4.Right, D4.Pole, D4.Back, -D4.Up)` |
+| 10 | `ParentChart` | Inherits enclosing anchor's frame (or `Identity`) with intervening `Node3D` transforms |
+
+| Method | Behavior |
+| --- | --- |
+| `S3Frame Frame(double radius)` | Resolved chart frame including `RelativeSpin`. |
+| `(S3Frame Frame, Transform3D Pose) ChartPose(double radius)` | Resolved frame and tangent pose. |
+| `(S3Frame Frame, Transform3D Pose) BasePose(double radius)` | Frame and pose prior to `RelativeSpin`. |
+
+## S3Camera3D
+
+If no current `S3Camera3D` exists, automatic sessions render from `new WalkPose(S3Frame.Identity, 0).Eye(Radius, 1.65)` at `70°` vertical FOV.
+
+| Property | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `Fov` | `float` | `70` | Vertical field of view in degrees (`1°`–`179°`). |
+| `Current` | `bool` | `true` | Marks this camera active within its `S3Space3D`. |
+
+| Method | Behavior |
+| --- | --- |
+| `S3Frame EyeFrame(double radius)` | Evaluates camera eye from its direct `S3CharacterController` parent (when present) or inherited chart. |
+
+## S3CharacterController
+
+Automatically bound when it is the direct parent of the active `S3Camera3D`. Enters 6-DOF flight when equatorial ground is disabled.
+
+| Property | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `BodyRadius` | `float` | `0.28` | Collision radius (m) |
+| `BodyHeight` | `float` | `1.8` | Standing collision height (m) |
+| `EyeHeight` | `float` | `1.65` | Walking eye height above support (m) |
+| `WalkSpeed` | `float` | `3.4` | Walk speed (m/s) |
+| `SprintSpeed` | `float` | `6.8` | Sprint speed (m/s) |
+| `FlightSpeed` | `float` | `6.6` | Flight speed (m/s) |
+| `MouseSensitivity` | `float` | `0.0022` | Radians per mouse delta unit |
+| `CaptureMouseOnStart` | `bool` | `true` | Capture cursor on startup when default input is enabled |
+| `EnableDefaultInput` | `bool` | `true` | Built-in `WASD` / mouse look / `Esc` capture toggle |
+| `Flying` | `bool` | `false` | Read-only current flight state |
+
+| Method | Behavior |
+| --- | --- |
+| `void Move(Vector3 direction, double delta, bool sprint = false)` | Move along local X/Y/Z (`Y` applies in flight). |
+| `void Look(Vector2 motion)` | Apply yaw (`X`) and pitch (`−Y`) scaled by `MouseSensitivity`. |
+
+## WalkableBoxShape3D
+
+Assign to `CollisionShape3D.Shape` and size via inherited `BoxShape3D.Size`. Its local `+Y` face acts as a walkable deck (step-up `0.45 m`) while its sides and bottom remain solid; shear it for ramps or stairs.
+
+## S3AudioRig
+
+| Property | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `UseAudioCamera` | `bool` | `false` | Set before `_Ready()` if the viewport lacks an active 3D camera (creates a `CullMask = 0` camera). |
+
+| Method | Behavior |
+| --- | --- |
+| `AudioStreamPlayer3D CreateVoice(string name, string bus, float gainDb, float maxDistance, float unitSize, AudioStreamPlayer3D.AttenuationModelEnum attenuation)` | Creates and configures a child 3D audio player under the rig. |
+| `void Play(AudioStream stream, S3Frame listener, D4 source, double radius, AudioPathVoice direct, AudioPathVoice? complementary = null, D4? localFallback = null)` | Resolves direct and optional opposite-side paths and schedules both voices. |
+
+### AudioPathVoice
+
+`AudioPathVoice(AudioStreamPlayer3D Player, float GainDb, float Pitch = 1, double DelaySeconds = 0, float? DistanceOverride = null)` configures one arrival voice (`DistanceOverride` overrides the `max(0.15 m, pathDistance)` placement). [Spatial audio example](/advanced/spatial-audio/)

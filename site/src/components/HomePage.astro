@@ -1,0 +1,192 @@
+---
+import { Icon } from '@astrojs/starlight/components';
+import RenderLayerCompare from './diagrams/RenderLayerCompare.astro';
+
+interface Props { lang?: 'en' | 'zh-CN' }
+const { lang = 'en' } = Astro.props;
+const zh = lang === 'zh-CN';
+const base = zh ? '/zh-cn/' : '/';
+
+const capabilities = [
+  {
+    title: zh ? '沿用 Godot 场景工作流' : 'Standard Godot authoring',
+    text: zh
+      ? '在局部切图上摆放网格、标准材质、光源与可走台面。'
+      : 'Place meshes, standard materials, lights, and walkable decks on local tangent charts.',
+    path: 'authoring/materials-lights-collision/',
+  },
+  {
+    title: zh ? '球冠 BVH 与测地线追踪' : 'Spherical-cap BVH & raytracing',
+    text: zh
+      ? '烘焙测地三角形与球冠层次树，供 CPU 拾取和 Vulkan 计算共用。'
+      : 'Bake geodesic triangles into a spherical-cap BVH shared by CPU picking and Vulkan compute.',
+    path: 'rendering/overview/',
+  },
+  {
+    title: zh ? '内置 S³ 编辑器主屏' : 'Built-in S³ editor',
+    text: zh
+      ? '在主屏中点选几何、拖动 SO(4) 操纵器移动锚点，并查看径向压缩。'
+      : 'Pick geometry, move anchors with an SO(4) gizmo, and inspect chart compression in the editor.',
+    path: 'authoring/editor-workflow/',
+  },
+  {
+    title: zh ? '独立核心库与环绕音频' : 'Standalone core & S³ audio',
+    text: zh
+      ? '无 Godot 依赖的双精度几何与碰撞库，同时解析直达与绕行双声路。'
+      : 'Use double-precision S³ math and collision outside Godot, with direct and wrap-around audio paths.',
+    path: 'advanced/core-library/',
+  },
+];
+
+const guides = [
+  {
+    title: zh ? 'S³ 空间直觉' : 'S³ intuition',
+    text: zh
+      ? '理解大圆距离、为什么远处地标会变大，以及如何选取曲率半径。'
+      : 'See why distant landmarks grow, how far a great circle reaches, and how to pick a radius.',
+    path: 'authoring/s3-intuition/',
+  },
+  {
+    title: zh ? '锚点与形变' : 'Anchors and distortion',
+    text: zh
+      ? '看清长墙为什么会在两端挤压，以及拆分为双锚点如何解决。'
+      : 'See why a long wall compresses near its ends and how splitting across two anchors fixes it.',
+    path: 'authoring/anchors-and-distortion/',
+  },
+];
+---
+<div class="home-content not-content">
+  <section class="layers">
+    <div class="section-copy">
+      <h2>{zh ? '自定义渲染' : 'Customize the rendering'}</h2>
+      <p>
+        {zh
+          ? '内置 PBR 光照、画布后处理或自定义 Vulkan 计算着色器，均可作用于同一 S³ 场景。'
+          : 'Built-in PBR lighting, canvas post-processing, or custom Vulkan compute shaders on the same S³ scene.'}
+      </p>
+      <a class="section-link" href={base + 'rendering/overview/'}>
+        {zh ? '查看渲染概览' : 'Rendering overview'}
+        <Icon name="right-arrow" size="1rem" />
+      </a>
+    </div>
+    <RenderLayerCompare lang={lang} />
+  </section>
+
+  <section class="band">
+    <h2>{zh ? '核心能力' : 'Core capabilities'}</h2>
+    <div class="card-grid">
+      {capabilities.map(item => (
+        <a class="card" href={base + item.path}>
+          <h3>{item.title}</h3>
+          <p>{item.text}</p>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>{zh ? '空间概念指南' : 'Geometry guides'}</h2>
+    <div class="card-grid">
+      {guides.map(item => (
+        <a class="card" href={base + item.path}>
+          <h3>{item.title}</h3>
+          <p>{item.text}</p>
+        </a>
+      ))}
+    </div>
+  </section>
+</div>
+<style>
+  .home-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4.5rem;
+    padding-top: 2.5rem;
+    color: var(--gl-text);
+  }
+  h2 {
+    margin: 0;
+    font-size: var(--gl-fs-xl);
+    line-height: 1.2;
+    font-weight: 600;
+  }
+  h3 {
+    margin: 0;
+    font-size: var(--gl-fs-lg);
+    line-height: 1.3;
+    font-weight: 600;
+  }
+  p {
+    margin: 0;
+    color: var(--gl-text-muted);
+    font-size: var(--gl-fs-base);
+    line-height: 1.6;
+  }
+  .layers {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem 3rem;
+    align-items: center;
+  }
+  .section-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+  }
+  .section-copy p {
+    max-width: 38ch;
+  }
+  .section-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    width: fit-content;
+    margin-top: 0.25rem;
+    color: var(--gl-accent);
+    font-size: var(--gl-fs-base);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .section-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+  .band {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .card-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1.5rem;
+    border-radius: 6px;
+    background: var(--gl-surface);
+    color: var(--gl-text);
+    text-decoration: none;
+  }
+  .card p {
+    font-size: var(--gl-fs-sm);
+  }
+  .card:hover {
+    background: var(--gl-surface-alt);
+  }
+  .card:hover h3 {
+    color: var(--gl-accent);
+  }
+  @media (min-width: 52rem) {
+    .layers {
+      grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+    }
+    .card-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+</style>

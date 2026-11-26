@@ -1,0 +1,31 @@
+---
+title: "参考文献与致谢"
+description: "Glome 所参考的非欧游戏、交互演示、几何著作与着色论文。"
+---
+
+## 非欧游戏与交互演示
+
+- **Hyperbolica**（CodeParade / HackerPoet）—— 以非欧几何为核心玩法的冒险游戏，在双曲与球面空间中探索、解谜、走迷宫和打雪仗。[itch.io](https://codeparade.itch.io/hyperbolica)、[GitHub](https://github.com/HackerPoet)
+- **HyperRogue 与 RogueViz**（Zeno Rogue 与 Tehora Rogue）—— *HyperRogue* 是在双曲平面上展开的 Roguelike 游戏；*RogueViz* 是其配套的非欧几何引擎，面向可视化、数学艺术与研究。[HyperRogue](https://roguetemple.com/z/hyper/)、[RogueViz](https://www.roguetemple.com/z/hyper/rogueviz.php)、[YouTube](https://www.youtube.com/@ZenoRogue)
+- **Portal Explorer**（Ilya Sheprut / `optozorax`）—— 在浏览器中直接移动、旋转传送门，观察门中套门与非线性运动。[在线演示](https://optozorax.github.io/portal/)、[源码](https://github.com/optozorax/portal)
+- **Metrica 与 Ball Game**（`akriegman`）—— *Metrica* 是在 600 胞体网格上建造方块的 $S^3$ 游戏；*Ball Game* 在此基础上支持方块搭建、多胞体导入与作品分享。[Metrica](https://akriegman.itch.io/metrica)、[Spherical-Game](https://github.com/akriegman/Spherical-Game)、[Ball Game](https://akriegman.itch.io/ball-game)
+- **3-Sphere Explorer 与 Glomelands**（`filbs111`）—— 用 WebGL 从内部观察三维球面；*Glomelands* 让玩家驾驶飞船经球形传送门穿行于多个 $S^3$ 小宇宙。[3-Sphere Explorer](https://github.com/filbs111/3sphere-explorer)、[Glomelands](https://www.indiedb.com/games/glomelands)
+- **Hypo**（`WillMatthews`）—— 用可透视传送门连接欧氏、双曲与球面场地的浏览器多人竞技射击游戏。[源码](https://github.com/WillMatthews/hyperbolic-shooter)
+- **Feuclide**（`Dastfox`）—— Rust 游戏引擎，以统一几何接口抽象 $H^3$、$S^3$、$E^3$ 及其商空间。[源码](https://github.com/Dastfox/feuclide)
+
+## 几何著作与影片
+
+- **Jeffrey R. Weeks**，《*The Shape of Space*》—— 从空间内部视角介绍有限无界三维流形的拓扑与几何。[图书](https://www.routledge.com/The-Shape-of-Space/Weeks/p/book/9781315162553)、[Geometry Games](https://www.geometrygames.org/ShapeOfSpace/)
+- **The Geometry Center**（1995），《宇宙的形状》（*The Shape of Space* 影片，Delle Maxwell 与 Tamara Munzner 执导，源自 Weeks 构想）—— 有限无界空间的经典可视化短片。[观看](https://www.youtube.com/watch?v=-gLNlC_hQ3M)
+- **Jeff Weeks**，*Non-Euclidean Billiards in VR*（Bridges 2020）—— 借台球瞄准对比 $H^3$、$E^3$ 与 $S^3$ 中的测地线与深度知觉。[论文](https://archive.bridgesmathart.org/2020/bridges2020-1.pdf)
+- **William P. Thurston**，《*Three-Dimensional Geometry and Topology*》第一卷（Silvio Levy 编，普林斯顿大学出版社，1997）—— 三维流形几何结构经典著作。[出版社](https://press.princeton.edu/books/hardcover/9780691083049/three-dimensional-geometry-and-topology-volume-1)
+- **Grant Sanderson**（3Blue1Brown）—— 以几何直觉为先的数学可视化讲解。[3Blue1Brown](https://www.3blue1brown.com/)
+
+## 渲染与着色
+
+| 文献 | 在 Glome 中的作用 |
+| --- | --- |
+| Godot 4.7 `RenderingDevice` 文档 | 计算着色器、描述符集、存储图像与工作组调度。[RenderingDevice](https://docs.godotengine.org/en/4.7/classes/class_renderingdevice.html)、[计算着色器教程](https://docs.godotengine.org/en/4.7/tutorials/shaders/compute_shaders.html) |
+| Walter、Marschner、Li、Torrance（EGSR 2007），*Microfacet Models for Refraction through Rough Surfaces* | `StandardLit` 中的 GGX 微表面法线分布。[论文](https://www.cs.cornell.edu/~srm/publications/EGSR07-btdf.html) |
+| Eric Heitz（JCGT 2014），*Understanding the Masking-Shadowing Function in Microfacet-Based BRDFs* | 高度相关的 Smith 可见性项。[论文](https://jcgt.org/published/0003/02/03/paper.pdf) |
+| Christophe Schlick（CGF 1994），*An Inexpensive BRDF Model for Physically-Based Rendering* | 菲涅耳近似。[论文](https://doi.org/10.1111/1467-8659.1330233) |

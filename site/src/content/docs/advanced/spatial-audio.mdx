@@ -1,0 +1,59 @@
+---
+title: "Spatial audio"
+description: "Play direct and complementary wrap-around sound paths on the 3-sphere using S3AcousticPath and S3AudioRig."
+---
+
+import AcousticPathsDiagram from '../../../components/diagrams/AcousticPathsDiagram.astro';
+
+On $S^3$, sound from $q$ reaches a listener at $p$ from **two opposite directions** along the same great circle: the short arc (`+d`, distance $R\theta$) and the wrap-around complement (`−d`, distance $R(2\pi - \theta)$).
+
+<AcousticPathsDiagram />
+
+## Path geometry
+
+| Case | Direct (`+d`) | Complementary (`−d`) |
+| --- | --- | --- |
+| Distinct ($0 < \theta < \pi$) | $+d,\; R\theta$ | $-d,\; R(2\pi - \theta)$ |
+| Coincident ($q = p$) | $+d,\; 0$ | $-d,\; 2\pi R$ |
+| Antipode ($q = -p$) | $+d,\; \pi R$ | $-d,\; \pi R$ |
+
+When $p$ and $q$ are coincident or antipodal ($\lVert q - p(p\cdot q)\rVert \le 10^{-12}$), `S3AcousticPath.Resolve` uses normalized `localFallback ?? D4.Up` as the local arrival axis.
+
+## Play a direct voice and a delayed echo
+
+Attach this script to a `Node` and assign `Clip` in the Inspector. It starts the direct arrival immediately and delays the opposite-side echo by the travel-time difference at 300 m/s:
+
+```csharp title="EchoExample.cs"
+#nullable enable
+using System;
+using Glome;
+using Glome.Core;
+using Godot;
+
+public partial class EchoExample : Node
+{
+    [Export] public AudioStream? Clip { get; set; }
+
+    public override void _Ready()
+    {
+        if (Clip is not { } clip) return;
+        var rig = new S3AudioRig { UseAudioCamera = GetViewport().GetCamera3D() is null };
+        AddChild(rig);
+
+        const double radius = 14;
+        var listener = S3Frame.Identity;
+        var source = new ArcRay(listener.P, listener.Right).At(Math.PI / 3);
+        var path = S3AcousticPath.Resolve(listener, source, radius);
+        double delay = (path.ComplementaryDistance - path.DirectDistance) / 300.0;
+
+        var model = AudioStreamPlayer3D.AttenuationModelEnum.InverseDistance;
+        var near = rig.CreateVoice("Direct", "Master", -3, 120, 10, model);
+        var far = rig.CreateVoice("Echo", "Master", -9, 120, 10, model);
+        rig.Play(clip, listener, source, radius,
+            new AudioPathVoice(near, -3),
+            new AudioPathVoice(far, -9, DelaySeconds: delay));
+    }
+}
+```
+
+Set `UseAudioCamera = true` before `_Ready()` if the viewport has no active 3D camera. Without `DistanceOverride`, voices are placed at least `0.15 m` from the listener to avoid zero-distance attenuation spikes. [S3AudioRig API](/reference/nodes/)

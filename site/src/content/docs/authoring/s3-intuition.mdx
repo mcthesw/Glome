@@ -1,0 +1,48 @@
+---
+title: "S³ intuition"
+description: "Understand great-circle distances, why distant landmarks grow, and how to pick a curvature radius."
+---
+
+import LandmarkApparentSizeDiagram from '../../../components/diagrams/LandmarkApparentSizeDiagram.astro';
+
+## How far a straight walk goes
+
+In Glome, positions live on the unit 3-sphere $S^3 = \{p \in \mathbb{R}^4 : \lVert p \rVert = 1\}$, and `S3Space3D.Radius` sets the metric scale $R$ in metres. Walking straight or tracing a ray from $p$ along a unit tangent $d \perp p$ follows a closed great circle:
+
+$$
+\gamma(t) = p\cos t + d\sin t, \qquad s = R t.
+$$
+
+| Landmark along the loop | Angle $t$ | Distance | At $R = 14\text{ m}$ |
+| --- | ---: | ---: | ---: |
+| Quarter turn relative to start ($p \cdot \gamma(t) = 0$) | $\pi/2$ | $\pi R / 2$ | 21.99 m |
+| Antipode $-p$ (all rays from $p$ reconverge) | $\pi$ | $\pi R$ | 43.98 m |
+| Back at $p$ after one full loop | $2\pi$ | $2\pi R$ | 87.96 m |
+
+The **equatorial ground** is the great 2-sphere $p_y = 0$, so a walker can travel an entire loop without hitting an edge.
+
+## Why a distant landmark grows
+
+Place a sphere of constant geodesic radius $R\rho$ at angular distance $\chi$ from the eye. Up to a quarter turn ($\chi = \pi/2$), rays diverge and the landmark shrinks as expected. Past $\pi/2$, all geodesics leaving the eye begin **reconverging** toward the antipode $-p$, so the exact same sphere spans a wider visual angle again.
+
+<LandmarkApparentSizeDiagram />
+
+By the spherical sine rule on the right spherical triangle formed by the eye, sphere center, and grazing point ($\rho < \chi < \pi - \rho$):
+
+$$
+\sin\beta = \frac{\sin\rho}{\sin\chi}.
+$$
+
+Because $\sin\chi$ peaks at $\pi/2$ and falls symmetrically toward $0$ and $\pi$, apparent size reaches its minimum at the quarter turn and expands rapidly near the antipode.
+
+## Picking a starting radius
+
+Decide how many metres $L$ you want between the player and the visual minimum at the quarter turn ($\pi/2$), then set $R = 2L / \pi$:
+
+| Scale | Suggested $R$ | Quarter-turn distance | Full loop ($2\pi R$) |
+| --- | ---: | ---: | ---: |
+| Courtyard | 10–16 m | 15.7–25.1 m | 62.8–100.5 m |
+| Plaza | 18–32 m | 28.3–50.3 m | 113.1–201.1 m |
+| Large hall | 40 m+ | 62.8 m+ | 251.3 m+ |
+
+Further reading: [Thurston, *Three-Dimensional Geometry and Topology* Vol. 1](https://press.princeton.edu/books/hardcover/9780691083049/three-dimensional-geometry-and-topology-volume-1), [Jeff Weeks, *Non-Euclidean Billiards in VR* (Bridges 2020)](https://archive.bridgesmathart.org/2020/bridges2020-1.pdf).

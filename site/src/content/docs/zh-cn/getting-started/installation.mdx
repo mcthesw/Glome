@@ -1,0 +1,36 @@
+---
+title: "安装"
+description: "将 Glome 加入 Godot 4.7 .NET 项目并运行内置示例展厅。"
+---
+
+## 环境要求
+
+| 组件 | 要求 |
+| --- | --- |
+| 编辑器 | **Godot 4.7.1 .NET（Mono）** 及 Godot C# 项目 |
+| .NET SDK | **.NET 10 SDK** |
+| 渲染器 | **Forward+（Vulkan）**，或支持 8×8 计算工作组的 Mobile Vulkan（`MaxComputeWorkgroupInvocations >= 64`） |
+
+## 复制插件
+
+将 Glome 仓库中的 `addons/glome/` 目录复制到项目的 `addons/` 下，确保 `res://addons/glome/plugin.cfg` 位于该路径。
+
+在包含 `project.godot` 的项目目录中运行（假设 Glome 源码位于同级目录 `../Glome`）：
+
+```bash title="Bash"
+mkdir -p ./addons
+cp -R ../Glome/addons/glome ./addons/
+```
+
+```powershell title="PowerShell"
+New-Item -ItemType Directory -Force ./addons | Out-Null
+Copy-Item -Recurse ../Glome/addons/glome -Destination ./addons/
+```
+
+## 启用并验证
+
+1. 用 Godot .NET 打开项目。若尚未生成 `.csproj`，通过 **项目 → 工具 → C#** 创建 C# 解决方案，然后编译（运行 `dotnet build` 或点击编辑器右上角的 <strong>Build（构建）</strong>按钮）。
+2. 在 **项目 → 项目设置 → 插件** 中启用 **S³ Editor**。
+3. 打开 `res://addons/glome/Examples/Minimal.tscn` 并按 **F6**（或切换到顶部 **S³** 主界面）。
+
+看到青绿色基座上的红环以及远方拱门，即说明安装完成。[快速开始](/zh-cn/getting-started/quickstart/)

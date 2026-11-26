@@ -1,0 +1,23 @@
+---
+title: "Rendering overview"
+description: "Compare Glome's rendering options on the same gallery camera and see how a scene reaches the screen."
+---
+
+import RenderLayerCompare from '../../../components/diagrams/RenderLayerCompare.astro';
+import PipelineDiagram from '../../../components/diagrams/PipelineDiagram.astro';
+
+<RenderLayerCompare />
+
+## Which approach fits your effect?
+
+| What you need | Approach | Set on `S3Space3D` |
+| --- | --- | --- |
+| Built-in PBR lighting, distance fog, unlit inspection, or clay preview | [Built-in rendering](/rendering/layer-1-builtin/) | Configure `Environment` and scene `StandardMaterial3D` resources |
+| Screen-space color grading, posterization, or vignette on the finished image | [Post-processing](/rendering/layer-2-post-process/) | Assign a `ShaderMaterial` to `OutputMaterial` |
+| Per-hit distance, surface normals, material IDs, custom shadows, or custom intersections | [Custom compute shader](/rendering/layer-3-compute-shader/) | Assign an `S3RenderProgram` to `RenderProgram` |
+
+Post-processing (`OutputMaterial`) composes on top of either built-in or custom compute rendering.
+
+## Data flow
+
+<PipelineDiagram />

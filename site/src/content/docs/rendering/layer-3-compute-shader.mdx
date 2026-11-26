@@ -1,0 +1,122 @@
+---
+title: "Custom compute shader"
+description: "Write a custom Vulkan compute shader over Set 0 ABI 1, pass host data in Set 1, and hook traversal."
+---
+
+## Run the cel example
+
+Copy [`cel.glsl`](https://github.com/mcthesw/Glome/blob/main/tests/standalone/cel.glsl) and [`Cel.tscn`](https://github.com/mcthesw/Glome/blob/main/tests/standalone/Cel.tscn) into your project root, let Godot import `cel.glsl`, open `Cel.tscn`, and press **F6**. The scene instances `Minimal.tscn` and assigns an `S3RenderProgram` pointing to `res://cel.glsl`.
+
+![Cel-shaded Minimal.tscn with ink contours and stepped shading.](/media/minimal-layer3-cel.webp)
+
+## Include stack
+
+Include the four headers in this order to consume [Set 0 ABI 1](/reference/compute-abi/) (bindings 0–14 and the 96 B camera push constant):
+
+```glsl title="cel.glsl"
+#[compute]
+#version 450
+#include "res://addons/glome/Shaders/glome_abi.glslinc"
+#include "res://addons/glome/Shaders/glome_camera.glslinc"
+#include "res://addons/glome/Shaders/glome_intersections.glslinc"
+#include "res://addons/glome/Shaders/glome_lighting.glslinc"
+
+const vec3 ink = vec3(0.12, 0.14, 0.25);
+const vec3 paper = vec3(0.98, 0.91, 0.74);
+
+vec3 illustration(vec4 direction) {
+    Hit hit = trace_primary(camera.pos, direction);
+    if (hit.kind == 0) return paper;
+    vec4 point = normalize(camera.pos * cos(hit.t) + direction * sin(hit.t));
+    vec4 incoming = direction * cos(hit.t) - camera.pos * sin(hit.t);
+    vec4 normal = vec4(0, 1, 0, 0);
+    vec4 geometric = normal;
+    int id = env.mode_ground_mat.y;
+    if (hit.kind == 2) {
+        Triangle face = tris[hit.id];
+        id = int(face.inv_k_material.w);
+        normal = smooth_normal(face, hit.weights, point);
+        geometric = face.plane;
+    }
+    if (dot(geometric, incoming) > 0.0) geometric = -geometric;
+    if (dot(normal, geometric) < 0.0) normal = -normal;
+    vec3 paint = sqrt(material_sample(material_records[id], hit.uv, 0.0).rgb);
+    float light = 0.0;
+    if (light_counts.x + light_counts.y > 0u) {
+        float arc;
+        vec4 sun = light_direction(point, lights[0].source, arc);
+        light = max(dot(sun, normal), 0.0);
+        if (light > 0.0 && !light_visible(point, geometric, lights[0].source, hit.id))
+            light = 0.0;
+    }
+    vec3 shade = mix(ink, paint, 0.38);
+    vec3 midtone = mix(paint, paper, 0.12);
+    vec3 highlight = mix(paint, paper, 0.48);
+    vec3 color = light < 0.18 ? shade : (light < 0.70 ? midtone : highlight);
+    if (hit.kind == 2 && abs(dot(normal, incoming)) < 0.16) color = ink;
+    float aerial = 1.0 - exp(-0.035 * camera.lens.x * hit.t);
+    return mix(color, paper, aerial);
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(pixel, camera.dims.xy))) return;
+    vec4 direction = pixel_direction(screen_uv(pixel));
+    imageStore(output_image, pixel, vec4(illustration(direction), 1.0));
+}
+```
+
+Workgroups are 8×8, so `main()` guards out-of-bounds pixels before tracing with `trace_primary` (`hit.kind`: `0` miss, `1` ground, `2` triangle) and writing `output_image`.
+
+## Pass host data in Set 1
+
+Add Set 1 uniforms and optional specialization constant ID 0 after the includes:
+
+```glsl title="cel.glsl (Set 1 extension)"
+layout(std140, set = 1, binding = 0) uniform Palette {
+    vec4 paper_color;
+} palette;
+layout(constant_id = 0) const int ink_enabled = 1;
+```
+
+Configure `S3RenderProgram` from C# before creating the renderer (or before the space enters the tree):
+
+```csharp title="CelPalette.cs"
+using System;
+using System.Runtime.InteropServices;
+using Glome;
+using Godot;
+
+static class CelPalette
+{
+    public static void Configure(S3RenderProgram program)
+    {
+        float[] paper = [0.98f, 0.91f, 0.74f, 1f];
+        program.CaptureSet1 = () =>
+        [
+            new ProgramBuffer(RenderingDevice.UniformType.UniformBuffer,
+                MemoryMarshal.AsBytes(paper.AsSpan()).ToArray())
+        ];
+        program.SpecializationValues = [1, 0];
+    }
+}
+```
+
+Array index in `CaptureSet1` maps directly to Set 1 binding `0, 1, ...` (uniform or storage buffers). Each value in `SpecializationValues` compiles a pipeline specializing **constant ID 0** (`pipeline: 0` uses `1`, `pipeline: 1` uses `0`). Keep returned byte arrays immutable while upload is queued.
+
+## Compile-time intersection hooks
+
+Define these macros **before** including `glome_intersections.glslinc`:
+
+| Macro | Effect |
+| --- | --- |
+| `GLOME_OPAQUE_TWO_SIDED` | Skips face culling and alpha-scissor checks (triangles and ground). |
+| `GLOME_ANALYTIC_HIT(p,d,lo,any_hit,h)` | Injects custom analytic geometry between ground and BVH traversal (respect `lo`, `h.t`, and `any_hit`). GPU-only: CPU picking and collision do not see custom analytic hits. |
+| `GLOME_EXCLUDE_CANDIDATE(j)` | Return `true` to skip packed triangle `j` after containment passes. |
+| `GLOME_GROUND_HOLE(x)` | Return **`true` to punch a hole** at unit crossing `x`. Its CPU counterpart `GlomeBakeOptions.GroundMask(x)` returns **`true` to keep ground** (complementary sign). While equatorial ground stays enabled, built-in `trace_primary` still caps at $\pi$. |
+
+## Hot reload and release export
+
+Custom hosts can await `GlomeComputeRenderer.ReloadShader(RDShaderSpirV)` with compatible descriptor layouts; if compilation or pipeline creation fails, the previous shader stays active.
+
+At export time, Godot compiles `#include` files into SPIR-V during import, so `.glslinc` files can be excluded from release PCKs (`exclude_filter="*.glslinc"`).

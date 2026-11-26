@@ -1,0 +1,136 @@
+---
+import { abi } from './abi-layout';
+
+interface Props {
+  /** Exact C# host struct name matching the end of entry.host in abi-layout.ts */
+  record: 'CameraPush' | 'TriangleRecord' | 'CapRecord' | 'ProbeRecord' | 'MaterialRecord' | 'LightRecord' | 'EnvironmentBlock';
+  lang?: 'en' | 'zh-CN';
+}
+
+const { record, lang = 'en' } = Astro.props;
+const zh = lang === 'zh-CN';
+const entry = abi.find(item => item.slots && item.host.split(/\s+/).at(-1) === record);
+if (!entry || !entry.slots) throw new Error(`Missing ABI layout for ${record}`);
+const isPacked = entry.slots.some(fields => fields.length > 1);
+---
+<div class:list={['rfc-wrap not-content', isPacked ? 'is-packed' : 'is-vector']}>
+  {isPacked ? (
+    <table class="rfc-grid packed-grid">
+      <thead>
+        <tr>
+          <th scope="col">{zh ? '偏移' : 'Byte'}</th>
+          <th scope="col">+0…3</th>
+          <th scope="col">+4…7</th>
+          <th scope="col">+8…11</th>
+          <th scope="col">+12…15</th>
+        </tr>
+      </thead>
+      <tbody>
+        {entry.slots.map((fields, row) => {
+          const hex = '0x' + (row * 16).toString(16).padStart(2, '0');
+          return (
+            <tr>
+              <th scope="row">{hex}</th>
+              {fields.map(field => (
+                <td colspan={field.words}>
+                  <code>{field.glsl}</code>
+                  <span class="meta">{field.type} ({field.host})</span>
+                </td>
+              ))}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  ) : (
+    <table class="rfc-grid vector-grid">
+      <thead>
+        <tr>
+          <th scope="col">{zh ? '偏移' : 'Offset'}</th>
+          <th scope="col">GLSL</th>
+          <th scope="col">C#</th>
+        </tr>
+      </thead>
+      <tbody>
+        {entry.slots.map((fields, row) => {
+          const field = fields[0];
+          const hex = '0x' + (row * 16).toString(16).padStart(2, '0');
+          return (
+            <tr>
+              <th scope="row">{hex}</th>
+              <td><code>{field.glsl}</code> <span class="type">{field.type}</span></td>
+              <td class="host">{field.host}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  )}
+</div>
+
+<style>
+  .rfc-wrap {
+    margin-block: 1rem 1.5rem;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+  .rfc-grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--sl-font-mono);
+    font-size: var(--gl-fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .packed-grid {
+    min-width: 28rem;
+    table-layout: fixed;
+  }
+  .vector-grid {
+    table-layout: auto;
+  }
+  .rfc-grid th,
+  .rfc-grid td {
+    padding: 0.45rem 0.65rem;
+    border-bottom: 1px solid var(--gl-border);
+    text-align: start;
+    vertical-align: top;
+  }
+  .packed-grid td + td {
+    border-inline-start: 1px solid var(--gl-border);
+  }
+  .rfc-grid thead th {
+    background: var(--gl-surface);
+    color: var(--gl-text-muted);
+    font-weight: 400;
+  }
+  .packed-grid thead th:first-child {
+    width: 4rem;
+  }
+  .vector-grid thead th:first-child {
+    width: 4.5rem;
+  }
+  .rfc-grid tbody th {
+    color: var(--gl-accent);
+    font-weight: 400;
+    white-space: nowrap;
+  }
+  .rfc-grid td code {
+    color: var(--gl-text);
+    font-family: var(--sl-font-mono);
+    background: transparent;
+    padding: 0;
+  }
+  .packed-grid td code {
+    display: block;
+  }
+  .type,
+  .host {
+    color: var(--gl-text-muted);
+  }
+  .meta {
+    display: block;
+    margin-top: 0.1rem;
+    color: var(--gl-text-muted);
+    overflow-wrap: anywhere;
+  }
+</style>

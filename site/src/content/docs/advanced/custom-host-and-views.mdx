@@ -1,0 +1,147 @@
+---
+title: "Custom host and editor views"
+description: "Drive baking and GlomeComputeRenderer from your own game loop, or register a custom S³ editor view provider."
+---
+
+## Drive the renderer manually
+
+Set `S3Space3D.AutoStart = false` before the space enters the scene tree to control baking, camera frames, output targets, and disposal yourself.
+
+Attach the script below to a `TextureRect`, assign `Space` and `Eye` in the Inspector, and call `RebakeAsync` from the Godot main thread after scene edits:
+
+```csharp title="ManualPreview.cs"
+#nullable enable
+using System.Threading;
+using System.Threading.Tasks;
+using Glome;
+using Godot;
+
+public partial class ManualPreview : TextureRect
+{
+    [Export] public S3Space3D Space { get; set; } = null!;
+    [Export] public S3Camera3D Eye { get; set; } = null!;
+    private GlomeComputeRenderer? renderer;
+    private S3BakeSnapshot scene = null!;
+    private double elapsed;
+
+    public override void _Ready()
+    {
+        scene = GlomeBaker.Bake(Space, visibility: Space.BakeVisibilityPolicy);
+        renderer = new(GlomeBuffers.Pack(scene), new Vector2I(640, 360), Space.RenderProgram);
+        Texture = renderer.Output;
+    }
+
+    public async Task RebakeAsync(CancellationToken ct)
+    {
+        var active = renderer;
+        if (active is null) return;
+        var options = new GlomeBakeOptions(Visibility: Space.BakeVisibilityPolicy);
+        var next = await GlomeBaker.BakeAsync(Space, options, ct);
+        if (active != renderer) return;
+        active.Rebuild(GlomeBuffers.Pack(next));
+        scene = next;
+    }
+
+    public override void _Process(double delta)
+    {
+        if (renderer is null) return;
+        while (renderer.Notices.TryDequeue(out var notice))
+        {
+            if (notice.Kind is RenderNoticeKind.Error or RenderNoticeKind.NoDevice)
+            {
+                GD.PushError(notice.Message);
+                SetProcess(false);
+                return;
+            }
+        }
+        elapsed += delta;
+        double radius = scene.Geometry.Radius;
+        renderer.Draw(Eye.EyeFrame(radius), radius, scene.Geometry.Nodes.Length,
+            (float)elapsed, verticalFov: System.Math.Clamp(Eye.Fov, 1, 179));
+    }
+
+    public override void _ExitTree()
+    {
+        Texture = null;
+        renderer?.Dispose();
+        renderer = null;
+    }
+}
+```
+
+## Async baking and cancellation
+
+`GlomeBaker.BakeAsync` extracts Godot nodes, materials, lights, and callbacks on the calling main thread, then runs vertex projection, BVH building, and collision construction on a worker thread before publishing `space.LastBake` back on the Godot context.
+
+A newer bake or `RequestRebake()` invalidates older generations and raises `OperationCanceledException` before stale results can publish — catch cancellation and keep drawing the last accepted snapshot.
+
+If you pass `GlomeBakeOptions.GroundMask`, capture only immutable values (never scene nodes): return `true` where ground exists (complementary to GPU `GLOME_GROUND_HOLE`).
+
+## Live renderer updates
+
+| Need | Method |
+| --- | --- |
+| Resize output | `Resize(Vector2I)` |
+| Swap scene geometry | `Rebuild(GlomeBuffers)` |
+| Update lights, environment, or Set 1 | `UpdateLight(index, record)`, `UpdateEnvironment(block)`, `UpdateProgramBuffer(binding, bytes)` |
+| Hot-reload compute shader | `await ReloadShader(spirv)` (keeps old shader active on failure) |
+| Save PNG capture | Construct with `capture: true`, then `await CaptureFrame(path)` |
+| Read diagnostic probes | Pass 64 B per probe, call `Draw(..., probeCount: n)`, poll `PollProbe()` and `Notices` |
+
+To clamp or react to `Radius` edits, subclass `S3Space3D`:
+
+```csharp title="BoundedSpace.cs"
+using System;
+using Glome;
+using Godot;
+
+[Tool]
+public partial class BoundedSpace : S3Space3D
+{
+    protected override double ConstrainRadius(double value) => Math.Clamp(value, 1, 100);
+    protected override void OnRadiusChanged() => GD.Print($"R = {Radius} m");
+}
+```
+
+## Register a custom S³ editor view
+
+Implement `IGlomeEditorViewProvider` and register it from an `EditorPlugin` to add a custom preview mode alongside `StandardLit`, `ClayClean`, and `Unlit`:
+
+```csharp title="SwatchPlugin.cs"
+#nullable enable
+#if TOOLS
+using System;
+using Glome;
+using Glome.Editor;
+using Godot;
+
+[Tool]
+public partial class SwatchPlugin : EditorPlugin
+{
+    private IDisposable? registration;
+    public override void _EnterTree() => registration = GlomeEditorViews.Register(new Swatch());
+    public override void _ExitTree() => registration?.Dispose();
+
+    private sealed class Swatch : IGlomeEditorViewProvider
+    {
+        public string Id => "sample.swatch";
+        public string DisplayName => "Material Swatch";
+        public bool AppliesTo(S3Space3D space) =>
+            space.GetNodeOrNull<S3Camera3D>("Walker/Eye") is not null;
+        public Vector2I Resolution(Vector2I panelPixels) => panelPixels;
+        public CanvasItem.TextureFilterEnum DisplayFilter => CanvasItem.TextureFilterEnum.Linear;
+        public bool Animated => false;
+
+        public GlomeEditorView Bake(S3Space3D space)
+        {
+            var snapshot = GlomeBaker.Bake(space, visibility: space.BakeVisibilityPolicy,
+                includeOwners: true);
+            var camera = space.GetNode<S3Camera3D>("Walker/Eye");
+            return new(snapshot, GlomeBuffers.Pack(snapshot), camera.EyeFrame(space.Radius));
+        }
+    }
+}
+#endif
+```
+
+Pass `Program` and optional `PrepareFrame` on `GlomeEditorView` for custom compute shaders or per-frame Set 1 updates. Set `Animated = true` if time alone changes the image. [Runtime and editor API](/reference/resources-and-runtime/)

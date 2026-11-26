@@ -1,0 +1,23 @@
+---
+title: "渲染概览"
+description: "在同一机位对比 Glome 的渲染定制方式，并了解场景数据如何变成屏幕像素。"
+---
+
+import RenderLayerCompare from '../../../../components/diagrams/RenderLayerCompare.astro';
+import PipelineDiagram from '../../../../components/diagrams/PipelineDiagram.astro';
+
+<RenderLayerCompare lang="zh-CN" />
+
+## 该选哪种定制方式？
+
+| 需要的数据与效果 | 方式 | 在 `S3Space3D` 上配置 |
+| --- | --- | --- |
+| 内置光照、距离雾、无光照贴图检查或素模预览 | [内置渲染](/zh-cn/rendering/layer-1-builtin/) | 调整 `Environment` 与场景 `StandardMaterial3D` |
+| 仅基于成图的调色、色阶或暗角 | [画布后处理](/zh-cn/rendering/layer-2-post-process/) | 为 `OutputMaterial` 指定 `ShaderMaterial` |
+| 命中距离、法线、材质 ID、测地阴影或自定义求交 | [自定义计算着色器](/zh-cn/rendering/layer-3-compute-shader/) | 为 `RenderProgram` 指定 `S3RenderProgram` |
+
+画布后处理（`OutputMaterial`）可叠加在内置渲染或自定义计算着色器之上。
+
+## 数据流向
+
+<PipelineDiagram lang="zh-CN" />

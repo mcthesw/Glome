@@ -1,0 +1,179 @@
+---
+import '../../styles/instruments.css';
+interface Props { lang?: 'en' | 'zh-CN' }
+const zh = Astro.props.lang === 'zh-CN';
+const repo = 'https://github.com/mcthesw/Glome/blob/main/';
+const base = {
+  label: zh ? '内置光照' : 'Built-in lighting',
+  file: 'glome_standard.glsl',
+  href: repo + 'addons/glome/Shaders/glome_standard.glsl',
+  src: '/media/minimal-layer1-standard.webp',
+  alt: zh ? '内置 StandardLit 光照下的展厅画面。' : 'Gallery rendered with built-in StandardLit lighting.',
+};
+const variants = [
+  {
+    id: 'grade',
+    button: zh ? '画面调色' : 'Color grade',
+    file: 'grade.gdshader',
+    href: repo + 'tests/standalone/grade.gdshader',
+    src: '/media/minimal-layer2-post.webp',
+    alt: zh ? '输出纹理经过 grade.gdshader 调色后的展厅画面。' : 'Same camera graded by grade.gdshader post-processing.',
+  },
+  {
+    id: 'cel',
+    button: zh ? '卡通着色' : 'Cel shading',
+    file: 'cel.glsl',
+    href: repo + 'tests/standalone/cel.glsl',
+    src: '/media/minimal-layer3-cel.webp',
+    alt: zh ? '自定义 cel.glsl 计算着色器渲染的色阶与描边画面。' : 'Same camera rendered by the custom cel.glsl compute shader.',
+  },
+];
+const initial = variants[1];
+---
+<gl-layer-compare class="gl-figure compare not-content" data-variants={JSON.stringify(variants)}>
+  <div class="split">
+    <img class="right" src={initial.src} alt={initial.alt} width="1280" height="720" loading="lazy" />
+    <img class="left" src={base.src} alt={base.alt} width="1280" height="720" loading="lazy" />
+    <div class="divider" aria-hidden="true"><span>‹ ›</span></div>
+    <input
+      type="range"
+      min="0"
+      max="100"
+      value="50"
+      step="1"
+      aria-label={zh ? '内置光照的可见比例' : 'Visible percentage of built-in lighting'}
+    />
+  </div>
+
+  <div class="bar">
+    <div class="sides">
+      <span class="side">
+        <strong>{base.label}</strong>
+        <a href={base.href} target="_blank" rel="noopener">{base.file}</a>
+      </span>
+      <span class="vs" aria-hidden="true">vs</span>
+      <span class="side" aria-live="polite">
+        <strong data-right-label>{initial.button}</strong>
+        <a data-right-link href={initial.href} target="_blank" rel="noopener">{initial.file}</a>
+      </span>
+    </div>
+
+    <div class="gl-segments" role="group" aria-label={zh ? '选择右侧对比效果' : 'Select right-hand shader'}>
+      {variants.map(v => (
+        <button type="button" data-variant={v.id} aria-pressed={v.id === initial.id}>
+          {v.button}
+        </button>
+      ))}
+    </div>
+  </div>
+</gl-layer-compare>
+
+<script>
+  interface Variant { id: string; button: string; file: string; href: string; src: string; alt: string }
+  class LayerCompare extends HTMLElement {
+    connectedCallback() {
+      const variants: Variant[] = JSON.parse(this.dataset.variants!);
+      const byId = new Map(variants.map(v => [v.id, v]));
+      const split = this.querySelector<HTMLElement>('.split')!;
+      const range = this.querySelector('input')!;
+      const rightImg = this.querySelector<HTMLImageElement>('img.right')!;
+      const rightLabel = this.querySelector('[data-right-label]')!;
+      const rightLink = this.querySelector<HTMLAnchorElement>('[data-right-link]')!;
+      const buttons = this.querySelectorAll<HTMLButtonElement>('button[data-variant]');
+
+      const updateSplit = () => {
+        split.style.setProperty('--gl-split', range.value + '%');
+        range.setAttribute('aria-valuetext', range.value + '%');
+      };
+      const moveTo = (event: PointerEvent) => {
+        const bounds = range.getBoundingClientRect();
+        const pct = Math.max(0, Math.min(100, (100 * (event.clientX - bounds.left)) / bounds.width));
+        range.value = String(pct);
+        updateSplit();
+      };
+      range.addEventListener('input', updateSplit);
+      range.addEventListener('pointerdown', event => {
+        if (event.button !== 0 || !event.isPrimary) return;
+        event.preventDefault();
+        range.focus({ preventScroll: true });
+        range.setPointerCapture(event.pointerId);
+        moveTo(event);
+      });
+      range.addEventListener('pointermove', event => {
+        if (range.hasPointerCapture(event.pointerId)) moveTo(event);
+      });
+      for (const button of buttons) {
+        button.addEventListener('click', () => {
+          const v = byId.get(button.dataset.variant!);
+          if (!v) return;
+          rightImg.src = v.src;
+          rightImg.alt = v.alt;
+          rightLabel.textContent = v.button;
+          rightLink.textContent = v.file;
+          rightLink.href = v.href;
+          for (const choice of buttons) choice.setAttribute('aria-pressed', String(choice === button));
+        });
+      }
+      updateSplit();
+    }
+  }
+  customElements.define('gl-layer-compare', LayerCompare);
+</script>
+<style>
+  .compare { padding: 0; overflow: hidden; }
+  .split { --gl-split: 50%; position: relative; overflow: hidden; aspect-ratio: 16 / 9; }
+  .split img { display: block; position: absolute; inset: 0; width: 100%; height: 100%; }
+  .left { clip-path: inset(0 calc(100% - var(--gl-split)) 0 0); }
+  .divider { position: absolute; inset-block: 0; left: var(--gl-split); border-inline-start: 2px solid var(--gl-bg); }
+  .divider span {
+    position: absolute;
+    top: 50%;
+    left: -1px;
+    transform: translate(-50%, -50%);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    background: var(--gl-bg);
+    color: var(--gl-accent);
+    font-family: var(--sl-font-mono);
+    font-size: var(--gl-fs-base);
+    white-space: nowrap;
+  }
+  .split input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: ew-resize;
+    touch-action: pan-y;
+  }
+  .split:has(input:focus-visible) { outline: 2px solid var(--gl-accent); outline-offset: -2px; }
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem 1rem;
+    padding: 0.85rem 1rem;
+  }
+  .bar .gl-segments {
+    margin-inline-start: -0.25rem;
+  }
+  .sides {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.45rem 0.75rem;
+    font-size: var(--gl-fs-sm);
+  }
+  .side { display: inline-flex; align-items: baseline; gap: 0.4rem; }
+  .side strong { font-weight: 600; color: var(--gl-text); }
+  .side a {
+    font-family: var(--sl-font-mono);
+    color: var(--gl-accent);
+    text-decoration: none;
+  }
+  .side a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+  .vs { color: var(--gl-text-muted); }
+</style>

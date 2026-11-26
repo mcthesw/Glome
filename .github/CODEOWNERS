@@ -1,0 +1,4 @@
+/site/design-contract.json @mcthesw
+/scripts/check_design_contract.mjs @mcthesw
+/.github/CODEOWNERS @mcthesw
+/.github/workflows/docs.yml @mcthesw

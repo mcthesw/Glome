@@ -1,0 +1,65 @@
+---
+title: "Core math"
+description: "Double-precision Glome.Core types for S³ frames, central projection, geodesic BVH tracing, collision, movement, and acoustic paths."
+---
+
+`Glome.Core` uses `double` precision. Positions on $S^3$ are unit vectors in $\mathbb{R}^4$, tangents $d$ at $p$ satisfy $p \cdot d = 0$, and angles are in **radians** (metric arc length is $R\theta$). [Core library overview](/advanced/core-library/)
+
+## D2 and D4
+
+`D2(double X, double Y)` is a readonly record struct supporting `+` and scalar `*`. `D4(double X, double Y, double Z, double W)` is a readonly record struct supporting `+`, `-`, `*`, `/` operators, indexer `this[0..3]`, and static unit axes `D4.Right` (+X), `Up` (+Y), `Back` (+Z), `Pole` (+W).
+
+| Member | Meaning |
+| --- | --- |
+| `Dot(D4 b)` / `Length` | Euclidean dot product and norm in $\mathbb{R}^4$ |
+| `Reject(D4 unit)` | Orthogonal component $a - u(a \cdot u)$ |
+| `Unit()` | Normalized vector |
+| `AngleTo(D4 unit)` | Geodesic angle $\operatorname{atan2}(\lVert q - p(p\cdot q)\rVert, p\cdot q) \in [0, \pi]$ |
+| `static Hodge(a, b, c)` | Oriented normal orthogonal to `a, b, c` (`Hodge(Right, Up, Back) == Pole`) |
+
+## ArcRay, S3Frame, and WalkPose
+
+- `ArcRay(D4 P, D4 D)`: great circle with `At(t) = p cos t + d sin t`, `Tangent(t) = d cos t - p sin t`, and `FirstRoot(a, b, lo)` for the first root $t \ge lo$ of $a\cos t + b\sin t = 0$.
+- `S3Frame(D4 Right, D4 Up, D4 Back, D4 P)`: orthonormal oriented frame (`Identity = (Right, Up, Back, Pole)`).
+
+| `S3Frame` member | Behavior |
+| --- | --- |
+| `Local(x, y, z)` | Combine local tangent axes |
+| `ExpMap(p, tangent)` | Travel from `p` along `tangent` by its norm in radians |
+| `LogMap(p, q)` | Shortest tangent vector from `p` to `q` (undefined at antipode $-p$) |
+| `Travel(dir, angle)` / `Travel(dir, angle, ref needle)` | Geodesic step with parallel transport of all axes (and optional `needle`) |
+| `Yaw` / `Pitch` / `Roll` | Local axis-plane rotations in radians |
+| `OnEquator(polar, bearing)` | Frame on $p_y = 0$ (`0` → `+Z`, $\pi/2$ → `+X`; `polar == π` yields `-D4.Pole`) |
+| `Orthonormalized()` | Gram–Schmidt cleanup restoring `Back` via oriented Hodge dual |
+
+- `WalkPose(S3Frame Ground, double Pitch, double Elevation = 0)`: `Eye(radius, eyeHeight)` lifts vertically by `(Elevation + eyeHeight) / radius` along `D4.Up` and applies `Pitch`; `LookingAt(...)` aims at a target point.
+
+## S3ChartMath
+
+| Method | Behavior |
+| --- | --- |
+| `CentralProjection(chart, radius, offset, out scale)` | Projects tangent `offset` (m): $h = p + v/R$, returns $h / \lVert h \rVert$ with $\text{scale} = \lVert h \rVert$ |
+| `Apply(frame, q)` / `Compose(a, b)` / `Transpose(f)` | 4×4 orthonormal frame matrix operations |
+| `Project(center, point, radius, out metres)` | Log-map into local XYZ metres; returns `false` when angle $\ge \pi - 0.015$ |
+| `Lift(center, metres, radius)` | Inverse of `Project` via `ExpMap` |
+| `Encode(frame)` / `Decode(double[8])` | Convert between `S3Frame` and canonical $\mathrm{Spin}(4)$ double-quaternion `(qL, qR)` |
+
+## GeodesicTriangle, SphericalCap, and BakedGeometry
+
+- `ChartVertex.Project(chart, radius, offset, normal, uv)` builds projected `ChartVertex(V, K, Uv, Normal)`.
+- `GeodesicTriangle(a, b, c, material, surface, traversal)` precomputes `Plane`, `Dual0..2`, and bounding `SphericalCap`. `TraversalFlags` combines `CullBack = 0`, `CullFront = 1`, `TwoSided = 2` (`CullMask = 3`) with `Cutout = 4`.
+- `CapBvhBuilder.Build(triangles)` (and overload with `IList<T> owners`) builds a flattened `CapNode[]` tree and permutes triangles (and owners) in place.
+- `BakedGeometry.Trace(ray, bruteForce = false, lo = RayStart, hi = null, ignoredTriangle = -1, filter = null, includeEquator = true)`:
+  - `RayStart = 1e-5` rad; returns `RayHit(HitKind, Triangle, T, Uv)`.
+  - Default `hi` is $\pi$ when equatorial ground is enabled without `groundMask`, otherwise $2\pi$.
+  - Equal-angle ties prefer triangles over ground, then lower triangle index.
+
+## S3CollisionWorld and S3MotorCore
+
+- `CollisionProxy(chart, radius, transform, halfExtents, ProxyShape, walkableTop = false)` represents a projected solid `Box` or `Cylinder` (`walkableTop` enables support on local `+Y`).
+- `S3CollisionWorld`: exposes `Radius`, `EquatorialGroundEnabled`, `ProxyCount`, `HasElevation`, `SupportHeight(ground, ceiling)`, `ReplaceProxy(id, proxy)`, `SweepSphere(ray, arc, bodyRadius, out first, out normal)`, `ClearPlacement`, and sliding `Move` (subarcs $\le 0.18\text{ rad}$).
+- `S3MotorCore(radius, arrival, BodyProfile, collision)`: tracks walking/flight (`Flying`, `Camera`, `Pitch`), `SetWorld`, `Visit`, `ToggleFlight`, `FlyTo`, `ClearPlacement`, `Look` (walking pitch clamped to `[-1.54, 1.54]` rad), and `Move`. Walkable decks use `0.45 m` step-up and `9.81 m/s²` gravity; pass elapsed `seconds` to `Move` even with zero horizontal input so falling integrates smoothly.
+
+## S3AcousticPath
+
+`S3AcousticPath.Resolve(listener, source, radius, localFallback = null)` returns `(LocalDirection, DirectDistance, ComplementaryDistance)` with distances $R\theta$ and $R(2\pi - \theta)$ in opposite directions (`±LocalDirection`), falling back to `localFallback ?? D4.Up` at coincidence or the antipode. [Spatial audio guide](/advanced/spatial-audio/)

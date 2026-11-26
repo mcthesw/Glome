@@ -1,0 +1,58 @@
+---
+title: "锚点与形变"
+description: "为什么长墙会在两端挤压、拆分为多锚点如何修复，以及 ChartPlacement 的十一种放置模式。"
+---
+
+import WallSplitDiagram from '../../../../components/diagrams/WallSplitDiagram.astro';
+
+## 为什么长墙会在两端挤压
+
+Godot 中的网格都是在平直欧氏坐标里建好的。为了让它落到三维球面上，每个 `S3Anchor3D` 会以中心点 $p$ 展开一张**局部切图**，再从四维原点把顶点做球心投影映射到 $S^3$。
+
+靠近锚点中心时，Godot 里的 1 米就是 $S^3$ 上的 1 米；离中心越远，同样 1 米切向坐标投影后对应的球面弧长越短：$s(x) = R\arctan(x / R)$。
+
+假设你在 $R = 14\text{ m}$ 的空间里，沿 16 m 长墙每隔 **2.00 m** 放一根柱子（从 `−8 m` 到 `+8 m` 共九根）：
+
+- 只用**单个居中锚点**时，中间一格仍有 `1.99 m`，最外两格则缩短为 **`1.60 m`**。
+- 拆为**两个独立锚点**后（每半段在各自局部坐标 `−4 m` 到 `+4 m` 排布，两锚点分别放在距中央接缝 `3.90 m`、方位相反的位置，中央接缝柱只建一次），最外一格恢复到 **`1.91 m`**。
+
+<WallSplitDiagram lang="zh-CN" />
+
+## 何时以及如何拆分
+
+令 $r = \lVert v \rVert / R$，局部径向长度的缩短比例为 $r^2 / (1 + r^2)$。当 $\lVert v \rVert = R / 3$ 时，局部径向压缩达到 **10%**（$R = 14\text{ m}$ 时为 `4.67 m`）。在检查器选中任意锚点即可直接查看最远顶点距离、切图角与径向压缩。
+
+以 $R = 14\text{ m}$ 下拆分上述 16 m 长墙为例：
+
+1. 将网格拆成两段 8 m 半墙，各自在局部 `−4 m` 到 `+4 m` 建模，中央接缝柱只放进其中一段。
+2. 为每段各放一个 `S3Anchor3D`，设 `ChartPlacement = ArcMetres`、`ArcMetres = 3.90`（即 $R\arctan(4/R)$），并赋予相反的 `BearingDegrees`（如 `-90` 与 `90`）。
+3. 让每段网格的顶点尽量靠近各自锚点的局部原点。
+
+如果只是嵌套一个 `ParentChart` 子锚点并平移 Godot 位置，偏移量仍会在父切图中累积，无法获得新的投影中心。
+
+## 放置模式
+
+`S3Anchor3D.ChartPlacement` 常用的三种搭建模式（赤道地面上 `BearingDegrees = 0°` 朝 `+Z`，`90°` 朝 `+X`）：
+
+| 模式 | 用途 |
+| --- | --- |
+| `ParentChart`（默认） | 继承最近祖先锚点的切图，并复合沿途 `Node3D` 变换。 |
+| `SphericalAngles` | 沿 `BearingDegrees` 行进 `PolarDegrees`，再按 `ElevationDegrees` 抬升。 |
+| `ArcMetres` | 沿 `BearingDegrees` 行进 `ArcMetres` 米，再按 `ElevationDegrees` 抬升。 |
+
+其余八种预设极点模式（`Origin`、`Antipode` 及六个坐标轴方向）见 [PlacementMode 参考](/zh-cn/reference/nodes/#placementmode)。
+
+- **`LocalOffset`**：以米计的切向平移（绝对模式下与节点 `Basis` 配合生效；`ParentChart` 模式下等价于读写 `Position`）。
+- **`RelativeSpin`**：由 **S³** 视口操纵器写入的 $SO(4)$ 相对位移，序列化为左右两个单位四元数（共 8 个 double）。
+- **`EditorChartRadius`**：编辑器 **From 3D** 相机过渡的混合半径（m），不改变烘焙投影。
+
+## 投影公式
+
+设切图单位中心为 $p$，顶点经网格到切图变换后的切向偏移为 $v$（m），经逆转置基变换后的局部法线为 $n$，`ChartVertex.Project` 按下式映射到 $S^3$：
+
+$$
+q = \frac{p + v/R}{\lVert p + v/R \rVert}, \qquad
+N = \frac{n - p(v \cdot n)/R}{\lVert n - p(v \cdot n)/R \rVert}.
+$$
+
+即使网格偏离中心或做过非均匀缩放，法线仍严格满足 $N \cdot q = 0$。[编辑器工作流](/zh-cn/authoring/editor-workflow/)

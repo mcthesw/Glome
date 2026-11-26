@@ -1,0 +1,31 @@
+---
+title: "Prior art and references"
+description: "Non-Euclidean games, visual explanations, geometry texts, and shading papers behind Glome."
+---
+
+## Non-Euclidean games and interactive demos
+
+- **Hyperbolica** (CodeParade / HackerPoet) — A non-Euclidean adventure game where you explore, solve puzzles, navigate mazes, and throw snowballs across hyperbolic and spherical worlds. [itch.io](https://codeparade.itch.io/hyperbolica), [GitHub](https://github.com/HackerPoet)
+- **HyperRogue & RogueViz** (Zeno Rogue & Tehora Rogue) — *HyperRogue* is a roguelike set on the hyperbolic plane where heptagonal/hexagonal tilings reshape exploration; *RogueViz* is its non-Euclidean engine for visualizations, mathematical art, and research. [HyperRogue](https://roguetemple.com/z/hyper/), [RogueViz](https://www.roguetemple.com/z/hyper/rogueviz.php), [YouTube](https://www.youtube.com/@ZenoRogue)
+- **Portal Explorer** (Ilya Sheprut / `optozorax`) — Interactive browser demo where you move and rotate portals to see nested portals and non-linear motion. [Demo](https://optozorax.github.io/portal/), [Source](https://github.com/optozorax/portal)
+- **Metrica & Ball Game** (`akriegman`) — *Metrica* is an $S^3$ block-building game on a 600-cell grid; *Ball Game* expands it with free block building, polytope import, and creation sharing. [Metrica](https://akriegman.itch.io/metrica), [Spherical-Game](https://github.com/akriegman/Spherical-Game), [Ball Game](https://akriegman.itch.io/ball-game)
+- **3-Sphere Explorer & Glomelands** (`filbs111`) — WebGL explorer of the 3-sphere from the inside, and *Glomelands*, where you pilot a ship through spherical portals linking $S^3$ pocket universes. [3-Sphere Explorer](https://github.com/filbs111/3sphere-explorer), [Glomelands](https://www.indiedb.com/games/glomelands)
+- **Hypo** (`WillMatthews`) — Browser multiplayer arena shooter connecting Euclidean, hyperbolic, and spherical spaces through see-through portals. [Source](https://github.com/WillMatthews/hyperbolic-shooter)
+- **Feuclide** (`Dastfox`) — Rust game engine using a shared geometry interface across $H^3$, $S^3$, $E^3$, and their quotients. [Source](https://github.com/Dastfox/feuclide)
+
+## Geometry texts and films
+
+- **Jeffrey R. Weeks**, *The Shape of Space* — Introduces topology and finite, boundaryless 3-manifolds from an inhabitant's perspective. [Book](https://www.routledge.com/The-Shape-of-Space/Weeks/p/book/9781315162553), [Geometry Games](https://www.geometrygames.org/ShapeOfSpace/)
+- **The Geometry Center** (1995), *The Shape of Space* (film, directed by Delle Maxwell and Tamara Munzner, based on Weeks's concept) — Visual introduction to closed 3-spaces. [Watch](https://www.youtube.com/watch?v=-gLNlC_hQ3M)
+- **Jeff Weeks**, *Non-Euclidean Billiards in VR* (Bridges 2020) — Uses aiming a billiard shot to compare geodesics and depth perception across $H^3$, $E^3$, and $S^3$. [Paper](https://archive.bridgesmathart.org/2020/bridges2020-1.pdf)
+- **William P. Thurston**, *Three-Dimensional Geometry and Topology*, Vol. 1 (edited by Silvio Levy, Princeton University Press, 1997) — Foundational geometric structures on 3-manifolds. [Publisher](https://press.princeton.edu/books/hardcover/9780691083049/three-dimensional-geometry-and-topology-volume-1)
+- **Grant Sanderson** (3Blue1Brown) — Visual mathematical explanations emphasizing geometric intuition. [3Blue1Brown](https://www.3blue1brown.com/)
+
+## Rendering and shading
+
+| Reference | Role in Glome |
+| --- | --- |
+| Godot 4.7 `RenderingDevice` documentation | Compute shaders, uniform sets, storage images, and workgroup dispatch. [RenderingDevice](https://docs.godotengine.org/en/4.7/classes/class_renderingdevice.html), [Compute shaders](https://docs.godotengine.org/en/4.7/tutorials/shaders/compute_shaders.html) |
+| Walter, Marschner, Li, and Torrance (EGSR 2007), *Microfacet Models for Refraction through Rough Surfaces* | GGX normal distribution in `StandardLit`. [Paper](https://www.cs.cornell.edu/~srm/publications/EGSR07-btdf.html) |
+| Eric Heitz (JCGT 2014), *Understanding the Masking-Shadowing Function in Microfacet-Based BRDFs* | Height-correlated Smith visibility term. [Paper](https://jcgt.org/published/0003/02/03/paper.pdf) |
+| Christophe Schlick (CGF 1994), *An Inexpensive BRDF Model for Physically-Based Rendering* | Fresnel approximation. [Paper](https://doi.org/10.1111/1467-8659.1330233) |

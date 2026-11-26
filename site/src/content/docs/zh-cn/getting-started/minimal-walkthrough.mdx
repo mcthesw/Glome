@@ -1,0 +1,29 @@
+---
+title: "最小示例导览"
+description: "对照画面与场景树理解 Minimal.tscn，并动手调整一座门架的位置。"
+---
+
+打开 `res://addons/glome/Examples/Minimal.tscn` 并按 **F6**。画面中央青绿色基座上的红环是 `Orrery`，左侧方座与铜球是 `Satellite`，远处的双柱门架是七个 `Meridian.tscn` 实例。
+
+![Minimal.tscn 初始画面：左侧为 Satellite，中央为红环天体仪 Orrery，后方为双柱门架。](/media/minimal-layer1-standard.webp)
+
+## 场景树对应关系
+
+| 节点 | 作用 |
+| --- | --- |
+| `MeridianGallery` | `S3Space3D` 根节点（`Radius = 14.0`），使用 `Daylight` 环境资源（`AmbientEnergy = 0.44`、`FogDensity = 0.047`）与 `Paving` 铺装地面材质。 |
+| `Sun` | 根节点下的 `DirectionalLight3D`，开启阴影。 |
+| `Orrery` | 位于 `(0, 0, -4.4)` 的 `S3Anchor3D`，包含中央基座、红环、铜球、圆柱碰撞体与一盏局部 `OmniLight3D`。 |
+| `Satellite` | 位于 `(-2.35, 0, -5.6)` 的 `S3Anchor3D`，包含左侧方座、铜球及等大盒碰撞体。 |
+| `Meridian1`–`Meridian7` | 七个 `Meridian.tscn` 实例，以球面角度分布在展厅各处；每根立柱各配盒碰撞体。 |
+| `Walker/Eye` | 位于原点的 `S3CharacterController` 及其直接子节点 `S3Camera3D`（`Fov = 70°`）。 |
+
+## 移动一座门架
+
+七座门架都使用 `ChartPlacement = SphericalAngles`：`PolarDegrees` 决定它离起点的地面角距离，`BearingDegrees` 决定出发方向（`0°` 朝 `+Z`，`90°` 朝 `+X`）。
+
+1. 按 **F8** 停止正在运行的场景，切到 **S³** 编辑器页签，选中 `Meridian1`（`PolarDegrees = 32°`、`BearingDegrees = 153°`）。
+2. 保持 `PolarDegrees` 为 `32°`，将 `BearingDegrees` 改为 `175°`，然后点击 **Rebake**。
+3. 门架绕起点水平移到新方向，沿地面的弧长保持约 $14 \times 32\pi/180 \approx 7.82\text{ m}$ 不变。
+
+七座门架的 `PolarDegrees` 从 `32°`（`Meridian1`，7.82 m）一直延伸到 **`170°`**（`Meridian5`，41.54 m，距起点对跖点仅差 10°）。[为什么远处的地标反而显得更大](/zh-cn/authoring/s3-intuition/)

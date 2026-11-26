@@ -1,0 +1,43 @@
+---
+title: "画布后处理"
+description: "通过 S3Space3D.OutputMaterial 挂载 Godot canvas_item 着色器，并控制渲染分辨率与像素化采样。"
+---
+
+如果视觉效果只需要最终渲染图（`TEXTURE`）和屏幕坐标（`UV`），直接用画布后处理即可。
+
+## 套用调色着色器
+
+1. 将下方 [`grade.gdshader`](https://github.com/mcthesw/Glome/blob/main/tests/standalone/grade.gdshader) 保存到项目中。
+2. 打开 `Minimal.tscn`，选中 `MeridianGallery`，给 `OutputMaterial` 新建 `ShaderMaterial` 并指定该着色器。
+3. 按 **F6** 运行。修改 `shadows` 可换阴影色调，修改 `13.0` 可调整亮度分级。
+
+```glsl title="grade.gdshader"
+shader_type canvas_item;
+render_mode unshaded;
+
+void fragment() {
+    vec3 source = texture(TEXTURE, UV).rgb;
+    float luma = dot(source, vec3(0.2126, 0.7152, 0.0722));
+    vec3 shadows = vec3(0.14, 0.09, 0.22);
+    vec3 mid = vec3(0.80, 0.43, 0.31);
+    vec3 light = vec3(1.0, 0.88, 0.64);
+    float stepped = floor(luma * 13.0 + 0.5) / 13.0;
+    vec3 grade = mix(shadows, mid, smoothstep(0.0, 0.55, stepped));
+    grade = mix(grade, light, smoothstep(0.46, 1.0, stepped));
+    float vignette = 1.0 - 0.18 * dot(UV - 0.5, UV - 0.5);
+    COLOR = vec4(mix(grade, source, 0.12) * vignette, 1.0);
+}
+```
+
+![应用 grade.gdshader 后的展厅画面。](/media/minimal-layer2-post.webp)
+
+## 输出控制
+
+| `S3Space3D` 属性 | 行为 |
+| --- | --- |
+| `OutputTarget` | 启动前指定，用于将画面嵌入自有 UI 的 `TextureRect`；留空时自动创建铺满视口的 `CanvasLayer`（层号 −1）。 |
+| `OutputMaterial` | 应用于输出矩形的 `ShaderMaterial`，运行时可随时更换，不触发重新烘焙。 |
+| `ResolutionScale` | 渲染像素缩放倍率（默认 `1.0`）。 |
+| `DisplayFilter` | 显示采样过滤（默认 `Linear`），运行时实时生效。 |
+
+想做**复古像素化**效果，只需将 `ResolutionScale` 设为 `0.5`、`DisplayFilter` 设为 `Nearest`。

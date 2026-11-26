@@ -1,0 +1,136 @@
+.gl-figure {
+  display: block;
+  min-width: 0;
+  margin-block: 1.5rem;
+  padding: 1.25rem;
+  border-radius: 6px;
+  background: var(--gl-surface);
+  color: var(--gl-text);
+  font-size: var(--gl-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.gl-figure .plot {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: var(--gl-plot-max-height, 19rem);
+}
+
+:where(.gl-figure .plot) text {
+  font-family: var(--sl-font-mono);
+  font-size: 13px;
+  fill: var(--gl-text);
+}
+
+.gl-figure .plot .ink-muted { fill: var(--gl-text-muted); }
+.gl-figure .plot .ink-accent { fill: var(--gl-accent); }
+
+.gl-figure .controls {
+  display: grid;
+  gap: 1rem 1.75rem;
+  margin-top: 1.25rem;
+}
+
+.gl-range {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  font-size: var(--gl-fs-sm);
+  color: var(--gl-text-muted);
+}
+
+.gl-range span[data-reading] {
+  font-family: var(--sl-font-mono);
+  color: var(--gl-text);
+}
+
+.gl-range input {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 1.5rem;
+  accent-color: var(--gl-accent);
+  cursor: pointer;
+}
+
+.gl-segments {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 6px;
+  background: var(--gl-bg);
+  width: fit-content;
+}
+
+.gl-segments button {
+  min-height: 2rem;
+  padding: 0.25rem 0.75rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gl-text-muted);
+  font-family: var(--sl-font);
+  font-size: var(--gl-fs-sm);
+  cursor: pointer;
+}
+
+.gl-segments button:hover {
+  color: var(--gl-text);
+}
+
+.gl-segments button[aria-pressed="true"] {
+  background: var(--gl-surface-alt);
+  color: var(--gl-text);
+  font-weight: 600;
+}
+
+.gl-readouts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2.25rem;
+  margin: 1.25rem 0 0;
+  padding: 0;
+}
+
+.gl-readouts > div {
+  min-width: 0;
+}
+
+.gl-readouts dt {
+  color: var(--gl-text-muted);
+  font-size: var(--gl-fs-sm);
+}
+
+.gl-readouts dd {
+  margin: 0.15rem 0 0;
+  font-family: var(--sl-font-mono);
+  font-size: var(--gl-fs-base);
+  color: var(--gl-text);
+}
+
+.gl-figure .caption {
+  margin: 1rem 0 0;
+  color: var(--gl-text-muted);
+  font-size: var(--gl-fs-sm);
+  line-height: 1.55;
+}
+
+.gl-figure .caption code {
+  font-family: var(--sl-font-mono);
+  color: var(--gl-text);
+}
+
+.gl-figure [hidden] {
+  display: none !important;
+}
+
+@media (min-width: 35rem) {
+  .gl-figure .controls {
+    grid-template-columns: 1fr 1fr;
+  }
+  .gl-figure .controls > .gl-segments {
+    grid-column: 1 / -1;
+  }
+}

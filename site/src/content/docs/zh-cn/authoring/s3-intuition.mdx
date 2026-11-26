@@ -1,0 +1,48 @@
+---
+title: "S³ 空间直觉"
+description: "理解大圆距离、为什么远处地标会变大，以及如何选择曲率半径。"
+---
+
+import LandmarkApparentSizeDiagram from '../../../../components/diagrams/LandmarkApparentSizeDiagram.astro';
+
+## 一直往前走会走多远
+
+Glome 用单位三维球面 $S^3 = \{p \in \mathbb{R}^4 : \lVert p \rVert = 1\}$ 表示空间，`S3Space3D.Radius` 指定以米计的曲率半径 $R$。从 $p$ 沿单位切向量 $d \perp p$ 直线行走或发射光线，都会沿闭合大圆前进：
+
+$$
+\gamma(t) = p\cos t + d\sin t, \qquad s = R t.
+$$
+
+| 沿途关键位置 | 角距离 $t$ | 弧长 | $R = 14\text{ m}$ 时 |
+| --- | ---: | ---: | ---: |
+| 相对起点的四分之一圈（$p \cdot \gamma(t) = 0$） | $\pi/2$ | $\pi R / 2$ | 21.99 m |
+| 对跖点 $-p$（所有射线在此重新会聚） | $\pi$ | $\pi R$ | 43.98 m |
+| 绕行一圈回到起点 $p$ | $2\pi$ | $2\pi R$ | 87.96 m |
+
+**赤道地面**是 $p_y = 0$ 的大二球面，角色可以沿它绕行整圈而不碰边界。
+
+## 为什么地标在远处反而变大
+
+把一个测地半径恒为 $R\rho$ 的球形地标放在距视点角距离 $\chi$ 处。在到达四分之一圈（$\chi = \pi/2$）之前，视线向外发散，地标像欧氏空间一样越远越小；越过 $\pi/2$ 后，从眼睛出发的所有测地线开始朝对跖点 $-p$ **重新会聚**，同样大小的地标因此再次占据更大的视角。
+
+<LandmarkApparentSizeDiagram lang="zh-CN" />
+
+由眼睛、球心与切点构成的直角球面三角形可得球面正弦关系（$\rho < \chi < \pi - \rho$）：
+
+$$
+\sin\beta = \frac{\sin\rho}{\sin\chi}.
+$$
+
+$\sin\chi$ 在 $\pi/2$ 处取最大值并向两端对称递减，所以视角半径在四分之一圈处最小，越靠近对跖点越大。
+
+## 选择起始曲率半径
+
+先决定玩家走四分之一圈（到达“视觉最小点”）希望经过多少米 $L$，再设 $R = 2L / \pi$：
+
+| 空间尺度 | 建议 $R$ | 四分之一圈距离 | 整圈周长（$2\pi R$） |
+| --- | ---: | ---: | ---: |
+| 紧凑庭院 | 10–16 m | 15.7–25.1 m | 62.8–100.5 m |
+| 中等广场 | 18–32 m | 28.3–50.3 m | 113.1–201.1 m |
+| 开阔大厅 | 40 m 及以上 | 62.8 m 及以上 | 251.3 m 及以上 |
+
+延伸阅读：[Thurston《Three-Dimensional Geometry and Topology》第一卷](https://press.princeton.edu/books/hardcover/9780691083049/three-dimensional-geometry-and-topology-volume-1)、[Jeff Weeks《Non-Euclidean Billiards in VR》（Bridges 2020）](https://archive.bridgesmathart.org/2020/bridges2020-1.pdf)。

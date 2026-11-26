@@ -1,0 +1,89 @@
+---
+import Search from 'virtual:starlight/components/Search';
+import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
+import LanguageSelect from './LanguageSelect.astro';
+import SocialIcons from 'virtual:starlight/components/SocialIcons';
+const { siteTitleHref, hasSidebar } = Astro.locals.starlightRoute;
+---
+<div class:list={['toolbar', { 'has-sidebar': hasSidebar }]}>
+  <a class="wordmark" href={siteTitleHref}>
+    <svg viewBox="0 0 32 32" width="24" height="24" fill="none" aria-hidden="true">
+      <g stroke="var(--gl-accent)" stroke-width="1.6">
+        <circle cx="16" cy="16" r="12" />
+        <ellipse cx="16" cy="16" rx="5.5" ry="12" transform="rotate(28 16 16)" />
+        <path d="M3 12.4 29 19.6" />
+      </g>
+    </svg>
+    <strong>Glome</strong>
+  </a>
+  <div class="search print:hidden"><Search /></div>
+  <div class="utilities print:hidden">
+    <div class="locale"><LanguageSelect includeAnchorMap /></div>
+    <div class="theme"><ThemeSelect /></div>
+    <div class="source"><SocialIcons /></div>
+  </div>
+</div>
+<script>
+  const search = document.querySelector<HTMLButtonElement>('.toolbar button[data-open-modal]');
+  if (search) {
+    search.querySelector('span[aria-hidden]')?.append(' ');
+    search.querySelector('kbd > kbd')?.append(' + ');
+    search.setAttribute('aria-label', search.textContent.trim());
+  }
+</script>
+<style>
+  .toolbar {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    gap: 1rem;
+    min-width: 0;
+  }
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+    color: var(--gl-text);
+    flex: none;
+  }
+  .wordmark strong {
+    font-size: var(--gl-fs-lg);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .search {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .utilities {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: none;
+  }
+  .source {
+    display: flex;
+    align-items: center;
+  }
+  .source :global(a) {
+    color: var(--gl-text-muted);
+    padding: 0.35rem;
+  }
+  .source :global(a:hover) {
+    color: var(--gl-text);
+  }
+  @media (max-width: 49.99rem) {
+    .toolbar { gap: 0.5rem; }
+    .source { display: none; }
+    .toolbar.has-sidebar .locale,
+    .toolbar.has-sidebar .theme { display: none; }
+    .toolbar:not(.has-sidebar) .theme { width: 1.8rem; }
+    .toolbar:not(.has-sidebar) .theme :global(select) { width: 2rem; height: 2.25rem; padding: 0; color: transparent; }
+    .toolbar:not(.has-sidebar) .theme :global(.caret) { display: none; }
+    .toolbar:not(.has-sidebar) .theme :global(.label-icon) { font-size: var(--gl-fs-base); inset-inline-start: 0.25rem; }
+    .search :global(button) { justify-content: center; min-width: 2rem; }
+  }
+</style>

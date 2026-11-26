@@ -1,0 +1,43 @@
+---
+title: "快速开始"
+description: "运行 Minimal.tscn、搭出第一个可走 S³ 场景，并切换无地面飞行。"
+---
+
+开始前请先按[安装指南](/zh-cn/getting-started/installation/)装好插件并启用 **S³ Editor**。
+
+## 运行内置展厅
+
+打开 `res://addons/glome/Examples/Minimal.tscn` 并按 **F6**。向前走近中央基座测试碰撞，绕行并环顾远处的门架。
+
+| 输入 | 操作 |
+| --- | --- |
+| `WASD` / 方向键 | 移动与横移 |
+| `Shift` | 步行冲刺 |
+| `Space` / `Ctrl` | 无地面飞行时上升 / 下降 |
+| 鼠标 | 环顾四周 |
+| `Esc` | 释放或重新捕获鼠标 |
+
+## 搭建第一个场景
+
+新建包含以下节点树的场景。将根节点 `S3Space3D.Radius` 设为 **14**，保持 `AutoStart` 开启。
+
+```text title="场景树"
+S3Space3D
+├── DirectionalLight3D
+├── S3Anchor3D
+│   ├── MeshInstance3D
+│   └── StaticBody3D
+│       └── CollisionShape3D
+└── S3CharacterController
+    └── S3Camera3D
+```
+
+1. 保持 `S3Anchor3D` 为默认 `ParentChart` 模式，位置设为 `(0, 0, -4)`。
+2. 为 `MeshInstance3D` 指定尺寸 `(1, 2, 1)` 的 `BoxMesh` 和一个 `StandardMaterial3D`，局部位置设为 `(0, 1, 0)` 使其落于地面。
+3. 为 `CollisionShape3D` 指定同样尺寸与位置的 `BoxShape3D`。
+4. 旋转 `DirectionalLight3D`，使其局部 `-Z` 照向箱体。
+5. 保持 `S3CharacterController` 在原点、`S3Camera3D` 作为其直接子节点（`Current = true`），按 **F6** 运行。
+
+## 切换无地面飞行
+
+停止运行，在 `S3Space3D` 上关闭 `EquatorialGroundEnabled` 后再按 **F6**。移除赤道地面后，控制器自动进入六自由度飞行（`Space` / `Ctrl` 控制升降），场景中的碰撞体依然生效。[进一步了解 Minimal.tscn](/zh-cn/getting-started/minimal-walkthrough/)

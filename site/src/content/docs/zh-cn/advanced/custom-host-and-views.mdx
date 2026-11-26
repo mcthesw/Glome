@@ -1,0 +1,147 @@
+---
+title: "自定义宿主与编辑器视图"
+description: "在自己的游戏循环中驱动烘焙与 GlomeComputeRenderer，或注册自定义 S³ 编辑器视图。"
+---
+
+## 手动驱动渲染器
+
+在 `S3Space3D` 进入场景树前设置 `AutoStart = false`，即可完全掌控烘焙时机、相机位姿、显示目标与释放时机。
+
+将以下脚本挂到 `TextureRect` 并在检查器绑定 `Space` 和 `Eye`，修改场景后从 Godot 主线程调用 `RebakeAsync`：
+
+```csharp title="ManualPreview.cs"
+#nullable enable
+using System.Threading;
+using System.Threading.Tasks;
+using Glome;
+using Godot;
+
+public partial class ManualPreview : TextureRect
+{
+    [Export] public S3Space3D Space { get; set; } = null!;
+    [Export] public S3Camera3D Eye { get; set; } = null!;
+    private GlomeComputeRenderer? renderer;
+    private S3BakeSnapshot scene = null!;
+    private double elapsed;
+
+    public override void _Ready()
+    {
+        scene = GlomeBaker.Bake(Space, visibility: Space.BakeVisibilityPolicy);
+        renderer = new(GlomeBuffers.Pack(scene), new Vector2I(640, 360), Space.RenderProgram);
+        Texture = renderer.Output;
+    }
+
+    public async Task RebakeAsync(CancellationToken ct)
+    {
+        var active = renderer;
+        if (active is null) return;
+        var options = new GlomeBakeOptions(Visibility: Space.BakeVisibilityPolicy);
+        var next = await GlomeBaker.BakeAsync(Space, options, ct);
+        if (active != renderer) return;
+        active.Rebuild(GlomeBuffers.Pack(next));
+        scene = next;
+    }
+
+    public override void _Process(double delta)
+    {
+        if (renderer is null) return;
+        while (renderer.Notices.TryDequeue(out var notice))
+        {
+            if (notice.Kind is RenderNoticeKind.Error or RenderNoticeKind.NoDevice)
+            {
+                GD.PushError(notice.Message);
+                SetProcess(false);
+                return;
+            }
+        }
+        elapsed += delta;
+        double radius = scene.Geometry.Radius;
+        renderer.Draw(Eye.EyeFrame(radius), radius, scene.Geometry.Nodes.Length,
+            (float)elapsed, verticalFov: System.Math.Clamp(Eye.Fov, 1, 179));
+    }
+
+    public override void _ExitTree()
+    {
+        Texture = null;
+        renderer?.Dispose();
+        renderer = null;
+    }
+}
+```
+
+## 异步烘焙与取消
+
+`GlomeBaker.BakeAsync` 在主线程提取节点、材质、灯光与回调，再在工作线程完成顶点投影、BVH 与碰撞构建，最后回到 Godot 上下文发布 `space.LastBake`。
+
+更新的烘焙或 `RequestRebake()` 会让旧任务失效并在发布前抛出 `OperationCanceledException`，调用方只需捕获取消并继续绘制上一份快照。
+
+传入 `GlomeBakeOptions.GroundMask` 时只捕获不可变数值（勿引用场景节点）：返回 `true` 表示该处保留地面（与 GPU `GLOME_GROUND_HOLE` 互补）。
+
+## 运行中更新渲染器
+
+| 需求 | 接口 |
+| --- | --- |
+| 调整输出分辨率 | `Resize(Vector2I)` |
+| 替换场景几何 | `Rebuild(GlomeBuffers)` |
+| 局部更新灯光、环境或 Set 1 | `UpdateLight(index, record)`、`UpdateEnvironment(block)`、`UpdateProgramBuffer(binding, bytes)` |
+| 热重载计算着色器 | `await ReloadShader(spirv)`（失败时保留原着色器继续运行） |
+| 截取 PNG | 构造时传 `capture: true`，再调用 `await CaptureFrame(path)` |
+| 读取诊断探针 | 每探针 64 字节，调用 `Draw(..., probeCount: n)` 并轮询 `PollProbe()` 与 `Notices` |
+
+如需限制或响应 `Radius` 变更，继承 `S3Space3D`：
+
+```csharp title="BoundedSpace.cs"
+using System;
+using Glome;
+using Godot;
+
+[Tool]
+public partial class BoundedSpace : S3Space3D
+{
+    protected override double ConstrainRadius(double value) => Math.Clamp(value, 1, 100);
+    protected override void OnRadiusChanged() => GD.Print($"R = {Radius} m");
+}
+```
+
+## 注册自定义 S³ 编辑器视图
+
+实现 `IGlomeEditorViewProvider` 并在 `EditorPlugin` 中注册，即可与内置 `StandardLit`、`ClayClean`、`Unlit` 并列显示：
+
+```csharp title="SwatchPlugin.cs"
+#nullable enable
+#if TOOLS
+using System;
+using Glome;
+using Glome.Editor;
+using Godot;
+
+[Tool]
+public partial class SwatchPlugin : EditorPlugin
+{
+    private IDisposable? registration;
+    public override void _EnterTree() => registration = GlomeEditorViews.Register(new Swatch());
+    public override void _ExitTree() => registration?.Dispose();
+
+    private sealed class Swatch : IGlomeEditorViewProvider
+    {
+        public string Id => "sample.swatch";
+        public string DisplayName => "Material Swatch";
+        public bool AppliesTo(S3Space3D space) =>
+            space.GetNodeOrNull<S3Camera3D>("Walker/Eye") is not null;
+        public Vector2I Resolution(Vector2I panelPixels) => panelPixels;
+        public CanvasItem.TextureFilterEnum DisplayFilter => CanvasItem.TextureFilterEnum.Linear;
+        public bool Animated => false;
+
+        public GlomeEditorView Bake(S3Space3D space)
+        {
+            var snapshot = GlomeBaker.Bake(space, visibility: space.BakeVisibilityPolicy,
+                includeOwners: true);
+            var camera = space.GetNode<S3Camera3D>("Walker/Eye");
+            return new(snapshot, GlomeBuffers.Pack(snapshot), camera.EyeFrame(space.Radius));
+        }
+    }
+}
+#endif
+```
+
+可通过 `GlomeEditorView.Program` 与 `PrepareFrame` 接入自定义计算着色器和逐帧 Set 1 数据；画面随时间持续变化时设置 `Animated = true`。[运行时与编辑器 API](/zh-cn/reference/resources-and-runtime/)

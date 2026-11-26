@@ -1,0 +1,37 @@
+---
+title: "核心库"
+description: "在任意 .NET 项目中无 Godot 依赖地引用 Glome.Core。"
+---
+
+`core/Glome.Core.csproj` 将 Glome 的双精度 S³ 数学、球冠 BVH、连续碰撞与声路求解打包为独立库（目标框架 `net8.0;net10.0`，零 Godot 依赖），直接编译 `addons/glome/Core/`，与插件共用同一份源码。
+
+## 添加项目引用
+
+在任意 `.NET` 项目中直接引用 `core/Glome.Core.csproj`：
+
+```bash title="Bash / PowerShell"
+dotnet add reference ../Glome/core/Glome.Core.csproj
+```
+
+## 示例
+
+从原点向右沿大圆前进四分之一圈（$R = 14\text{ m}$ 时弧长约 $21.99\text{ m}$）：
+
+```csharp title="QuarterTurn.cs"
+using System;
+using Glome.Core;
+
+var start = S3Frame.Identity;
+var quarter = start.Travel(start.Right, Math.PI / 2);
+D4 point = quarter.P; // (1, 0, 0, 0)
+```
+
+[核心数学 API 参考](/zh-cn/reference/core-math/)
+
+## 模块分层
+
+| 层级 | 职责 | 实现位置 |
+| --- | --- | --- |
+| 核心层（纯 C#） | 单位标架、测地三角形、球冠 BVH、扫掠碰撞与双声路 | `addons/glome/Core/`（`core/Glome.Core.csproj`） |
+| Godot 适配层 | 场景提取、材质与纹理打包、碰撞形状适配与 3D 音频节点 | `GlomeBaker`、`CollisionShapeAdapter`、`S3AudioRig` |
+| 运行时与编辑器 | GPU 缓冲打包、Vulkan 计算渲染器、自动会话与 S³ 编辑器主屏 | `GlomeBuffers`、`GlomeComputeRenderer`、`GlomeStandaloneSession`、`Glome.Editor` |

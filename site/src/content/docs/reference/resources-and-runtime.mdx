@@ -1,0 +1,108 @@
+---
+title: "Resources and runtime"
+description: "Reference for S3Environment, S3RenderProgram, GlomeBaker, GlomeBuffers, GlomeComputeRenderer, and editor extension APIs."
+---
+
+Types live in `Glome` unless noted as `Glome.Editor` or `Glome.Core`. [Custom host example](/advanced/custom-host-and-views/)
+
+## S3Environment and S3ShadingMode
+
+| Property | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `BackgroundColor` | `Color` | `new(0.28f, 0.32f, 0.38f)` | Color on primary ray miss |
+| `AmbientColor` | `Color` | `Colors.White` | Ambient diffuse tint |
+| `AmbientEnergy` | `float` | `0.2f` | Ambient diffuse multiplier |
+| `FogColor` | `Color` | `new(0.28f, 0.32f, 0.38f)` | Target fog color |
+| `FogDensity` | `float` | `0` | Exponential fog density ($\text{m}^{-1}$); `0` disables fog |
+| `ShadingMode` | `S3ShadingMode` | `StandardLit` | `StandardLit` (0), `Unlit` (1), or `ClayClean` (2) |
+| `EquatorialGroundEnabled` | `bool` | `true` | Enables analytical ground at $p_y = 0$ when also enabled on `S3Space3D` |
+| `GroundMaterial` | `StandardMaterial3D?` | `null` | Ground material; `null` renders the procedural grid |
+
+`EnvironmentBlock Capture(int groundMaterial)` linearizes colors, packs mode and ground index, and stores ground UV transform `(0.25 × Uv1Scale.XY, Uv1Offset.XY)`.
+
+## S3RenderProgram, ProgramBuffer, and GlomeStandardProgram
+
+| Property | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `Shader` | `RDShaderFile?` | `null` | Compute `.glsl` shader file (such as `cel.glsl`) |
+| `SpecializationValues` | `int[]` | `[]` | One pipeline per integer for constant ID `0`; empty uses shader default |
+| `CaptureSet1` | `Func<ProgramBuffer[]>?` | `null` | Callback invoked on construction and `Rebuild`; array index is Set 1 binding |
+
+- `ProgramBuffer(RenderingDevice.UniformType Type, byte[] Data)`: `UniformBuffer` or `StorageBuffer` bytes (keep array immutable while upload is queued).
+- `GlomeStandardProgram()`: `S3RenderProgram` preloaded with `res://addons/glome/Shaders/glome_standard.glsl`.
+
+## S3BakeSnapshot and GlomeBakeOptions
+
+```csharp title="Records"
+S3BakeSnapshot(long Revision, BakedGeometry Geometry, S3CollisionWorld Collision,
+    Node3D[]? TriangleOwners, GlomeMaterials? Materials, GlomeLight[] Lights,
+    EnvironmentBlock Environment)
+
+GlomeBakeOptions(double? RadiusOverride = null,
+    BakeVisibility Visibility = BakeVisibility.HonoredUpToRoot,
+    Func<Material?, SurfaceTag>? ResolveMaterial = null,
+    Action<S3Anchor3D, S3Frame, Transform3D>? OnAnchor = null,
+    Action<int, CollisionShape3D, S3Frame, Transform3D>? OnProxy = null,
+    bool IncludeOwners = false, Predicate<D4>? GroundMask = null)
+```
+
+- `Visibility`: `HonoredUpToRoot` (0) checks node and ancestor visibility up to the space; `SelfVisible` (1) checks only the node. Enabled colliders always bake regardless of visibility.
+- `ResolveMaterial`: override native `StandardMaterial3D` packing with custom `SurfaceTag(Material, Surface, Traversal)` values (`Materials` becomes `null`).
+- `IncludeOwners`: maps reordered BVH triangles back to their owning `S3Anchor3D` (or mesh) for editor picking.
+- `GroundMask`: pure predicate on unit crossing point `x` for CPU ground tracing (`true` keeps ground; complementary to GPU `GLOME_GROUND_HOLE`).
+
+## GlomeBaker
+
+```csharp title="GlomeBaker"
+public static S3BakeSnapshot Bake(S3Space3D space, GlomeBakeOptions? options = null)
+public static Task<S3BakeSnapshot> BakeAsync(S3Space3D space,
+    GlomeBakeOptions? options = null, CancellationToken cancellationToken = default)
+```
+
+Call from the Godot main thread. `BakeAsync` extracts Godot nodes and callbacks on the main thread, builds triangles/BVH/collision on a worker thread, and cancels publication (`OperationCanceledException`) if superseded by a newer bake or `RequestRebake()`.
+
+## GlomeMaterials, GlomeBuffers, and GlomeLight
+
+- `GlomeMaterials(MaterialRecord[] Records, TextureBank[] Banks)`: native material table (index `0` is `MaterialRecord.White`) and up to 4 sRGB `TextureBank` arrays.
+- `GlomeBuffers.Pack(S3BakeSnapshot)` / `Pack(BakedGeometry, MaterialRecord[], byte[], EnvironmentBlock, TextureBank[])`: packs buffers to [Set 0 ABI 1](/reference/compute-abi/). Pass the actual `Geometry.Nodes.Length` to `Draw`.
+- `GlomeLight.Directional(pole, radiance, shadows)` / `Omni(position, radiance, metres, radius, shadows)` / `Pack(lights)`: groups lights in `LightGroup` order (`Directional`, `ShadowedDirectional`, `Omni`, `ShadowedOmni`) with a 16-byte count header.
+
+## GlomeComputeRenderer
+
+```csharp title="Constructors"
+GlomeComputeRenderer(S3BakeSnapshot snapshot, Vector2I size, S3RenderProgram? program = null,
+    byte[]? probes = null, bool capture = false, string timingPrefix = "")
+GlomeComputeRenderer(GlomeBuffers buffers, Vector2I size, S3RenderProgram? program = null,
+    byte[]? probes = null, bool capture = false, string timingPrefix = "")
+```
+
+| Member | Purpose |
+| --- | --- |
+| `const double VerticalFov` | Default vertical FOV (`70°`) |
+| `Texture2Drd Output` | Current output texture wrapper |
+| `ConcurrentQueue<RenderNotice> Notices` | Queue of `Error`, `NoDevice`, `Probe`, and `FrameSaved` notices |
+| `Draw(view, radius, nodeCount, elapsedSeconds, probeCount = 0, timingLabel = null, pipeline = 0, verticalFov = VerticalFov)` | Dispatch image (`probeCount == 0`) or diagnostic probes (`probeCount > 0`) |
+| `Resize(Vector2I size)` | Resize output texture |
+| `Rebuild(GlomeBuffers scene, byte[]? probes = null, string timingPrefix = "")` | Upload new geometry buffers and recapture Set 1 |
+| `UpdateLight(int index, LightRecord record)` | Overwrite packed light at byte `16 + 32i` |
+| `UpdateEnvironment(EnvironmentBlock env)` | Replace 80-byte environment uniform block |
+| `UpdateProgramBuffer(int binding, byte[] snapshot)` | Overwrite Set 1 buffer from byte `0` |
+| `Task ReloadShader(RDShaderSpirV spirv)` | Swap compute pipelines atomically; leaves old shader active on failure |
+| `Task<bool> CaptureFrame(string path)` / `SaveFrame(string path)` | Write PNG readback (requires `capture: true`) |
+| `PollProbe()` | Drain timestamps and probe readback into `Notices` |
+| `Dispose()` | Release GPU resources on the render thread |
+
+## Chart and collision adapters
+
+| Helper | Purpose |
+| --- | --- |
+| `GlomeChart.Walk(parent, transform, visit)` | Depth-first walk of descendants within one chart (stops at nested anchors, spaces, and viewports) |
+| `ChartCamera.FromUnfolded` / `FromTangent` / `Blend` | Convert or blend Godot 3D editor transforms into `S3Frame` views |
+| `CollisionShapeAdapter.Create` / `Box` | Convert `BoxShape3D`, `WalkableBoxShape3D`, and `CylinderShape3D` into `CollisionProxy` |
+
+## Editor extension API (`Glome.Editor`, `#if TOOLS`)
+
+- **`IGlomeEditorViewProvider`**: implement `Id`, `DisplayName`, `AppliesTo(space)`, `Bake(space)` (plus optional `Resolution`, `DisplayFilter`, `Animated`) and register via `GlomeEditorViews.Register(provider)` (dispose handle to unregister).
+- **`GlomeEditorView(Snapshot, Buffers, InitialView, Program = null, PrepareFrame = null)`**: `PrepareFrame(renderer, view, elapsed)` uploads per-frame Set 1 data and returns the pipeline index.
+- **`GlomeEditorPlugin`**: exposes `BridgeDirectory`, `BridgeShaderReload`, `TryGetViewState`, `SetView`, `FocusNode`, `RequestRebake`, `CapturePreviewImage`, and `ReloadPreviewShader`.
+- **`GlomeInspectorPlugin`**: adds radius distance readouts, undoable **Scale Entire Scene**, and anchor radial-compression diagnostics to the Inspector.

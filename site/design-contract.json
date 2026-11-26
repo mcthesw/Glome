@@ -1,0 +1,64 @@
+{
+  "$schemaVersion": 2,
+  "name": "Glome Documentation Design Contract",
+  "owner": "@mcthesw",
+  "description": "Locked visual tokens, font families, forbidden CSS primitives, and typography bans for glome.sworld.club. Modifying this file requires explicit owner approval.",
+  "colors": {
+    "dark": {
+      "--gl-bg": "#141318",
+      "--gl-surface": "#1c1b22",
+      "--gl-surface-alt": "#25232d",
+      "--gl-border": "#343140",
+      "--gl-text": "#eae3d6",
+      "--gl-text-muted": "#9f97a3",
+      "--gl-accent": "#dfa05e",
+      "--gl-warn": "#d66345",
+      "--gl-ok": "#6fa37a"
+    },
+    "light": {
+      "--gl-bg": "#f5f0e6",
+      "--gl-surface": "#ece5d8",
+      "--gl-surface-alt": "#e2d9c8",
+      "--gl-border": "#cfc5b2",
+      "--gl-text": "#1c1b22",
+      "--gl-text-muted": "#5e5a66",
+      "--gl-accent": "#7c460c",
+      "--gl-warn": "#b84222",
+      "--gl-ok": "#2f6b40"
+    }
+  },
+  "fonts": {
+    "sans": [
+      "IBM Plex Sans",
+      "Noto Sans SC",
+      "PingFang SC",
+      "Microsoft YaHei",
+      "sans-serif"
+    ],
+    "mono": [
+      "JetBrains Mono",
+      "ui-monospace",
+      "SFMono-Regular",
+      "Consolas",
+      "monospace"
+    ]
+  },
+  "radii": {
+    "control": "4px",
+    "container": "6px"
+  },
+  "forbiddenCssPatterns": [
+    "linear-gradient(",
+    "radial-gradient(",
+    "conic-gradient(",
+    "repeating-linear-gradient(",
+    "repeating-radial-gradient(",
+    "backdrop-filter",
+    "-webkit-backdrop-filter",
+    "drop-shadow("
+  ],
+  "forbiddenTextPatterns": [
+    "·"
+  ],
+  "forbiddenBoxShadow": true
+}

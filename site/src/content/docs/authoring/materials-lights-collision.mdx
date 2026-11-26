@@ -1,0 +1,44 @@
+---
+title: "Materials, lights and collision"
+description: "Supported StandardMaterial3D features, spherical lights, and collision proxies including walkable decks."
+---
+
+## Materials
+
+Assign a `StandardMaterial3D` to any triangle or triangle-strip `MeshInstance3D` surface (including material overrides) or to `S3Environment.GroundMaterial`.
+
+| Category | Baked properties |
+| --- | --- |
+| Color | `AlbedoColor` × `AlbedoTexture`, UV1 scale and offset. Missing mesh UVs fall back to chart-space X/Z. |
+| Shading | Scalar `Roughness`, `Metallic`, `Unshaded` flag, and linearized `Emission` × `EmissionEnergyMultiplier`. |
+| Culling & alpha | Back/front/disabled culling, opaque surfaces, and `AlphaScissor` with `AlphaScissorThreshold`. |
+| Filtering | Nearest/linear filtering, repeat/clamp addressing, and mipmapped filter modes. |
+
+Ignored features (ORM/normal/roughness/metallic/AO/emission maps, blended transparency, skeletal skinning) log a warning once per resource; non-standard materials fall back to white.
+
+### Texture banks and cutouts
+
+`TextureBankPacker` packs albedo textures into up to four `texture2DArray` banks grouped by exact resolution. If more than four distinct resolutions exist, the three most-used sizes stay native and the overflow shares `bank3` resized to the overflow group's max width and height.
+
+For `AlphaScissor`, CPU picking and GPU primary/shadow rays both test base-level alpha (`albedo alpha × texture alpha >= threshold`) with matching addressing and nearest/bilinear rules.
+
+## Lights
+
+- **`DirectionalLight3D`**: shines along local `−Z`; the baker stores its transformed `+Z` pole.
+- **`OmniLight3D`**: projects its chart origin onto $S^3$ with geodesic range `OmniRange` (m), cutoff $c = \cos(\operatorname{clamp}(\mathrm{OmniRange}/R, 0, \pi))$, and quadratic falloff inside the range.
+
+Enable `ShadowEnabled` on either light to trace geodesic shadow rays in `StandardLit`.
+
+## Collision
+
+Place enabled `CollisionShape3D` nodes inside your charts.
+
+| Shape resource | Role |
+| --- | --- |
+| `BoxShape3D` | Solid obstacle (walls, piers). |
+| `CylinderShape3D` | Solid local-Y cylinder (e.g. the plinth in `Minimal.tscn`). |
+| `WalkableBoxShape3D` | **Walkable deck**: its local `+Y` face supports the player while its sides and underside stay solid, so elevated bridges can be walked over and passed under. |
+
+Shear a `WalkableBoxShape3D` to build a continuous ramp over stairs. `S3Elevation` steps up to **0.45 m**, follows the deck downhill, and applies **9.81 m/s²** gravity off ledges.
+
+**Collection & visibility rules.** `S3Space3D.BakeVisibilityPolicy` (`HonoredUpToRoot` or `SelfVisible`) filters meshes and lights only. Every enabled supported `CollisionShape3D` in the space — including shapes under hidden nodes or `Area3D` triggers — is currently baked as solid. Set `CollisionShape3D.Disabled = true` and rebake to exclude a collider.

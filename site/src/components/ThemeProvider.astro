@@ -1,0 +1,10 @@
+---
+import ThemeProvider from '@astrojs/starlight/components/ThemeProvider.astro';
+---
+<script is:inline>
+  // Starlight saves an empty string for an explicit "Auto" selection.
+  try {
+    if (localStorage.getItem('starlight-theme') === null) localStorage.setItem('starlight-theme', 'dark');
+  } catch { /* Storage may be disabled. Starlight can still use the system theme. */ }
+</script>
+<ThemeProvider />

@@ -1,0 +1,36 @@
+---
+title: "Installation"
+description: "Add Glome to a Godot 4.7 .NET project and run the bundled gallery scene."
+---
+
+## Requirements
+
+| Component | Requirement |
+| --- | --- |
+| Editor | **Godot 4.7.1 .NET (Mono)** with a C# project |
+| .NET SDK | **.NET 10 SDK** |
+| Renderer | **Forward+ (Vulkan)**, or Mobile Vulkan supporting 8×8 compute workgroups (`MaxComputeWorkgroupInvocations >= 64`) |
+
+## Copy the add-on
+
+Copy `addons/glome/` from a Glome checkout into your project's `addons/` folder so that `res://addons/glome/plugin.cfg` exists at that exact path.
+
+From your Godot project directory (containing `project.godot`), assuming Glome is checked out alongside it at `../Glome`:
+
+```bash title="Bash"
+mkdir -p ./addons
+cp -R ../Glome/addons/glome ./addons/
+```
+
+```powershell title="PowerShell"
+New-Item -ItemType Directory -Force ./addons | Out-Null
+Copy-Item -Recurse ../Glome/addons/glome -Destination ./addons/
+```
+
+## Enable and verify
+
+1. Open your project in Godot .NET. If it has no `.csproj` yet, create one via **Project → Tools → C#**, then build (`dotnet build` or the editor **Build** button).
+2. Enable **S³ Editor** in **Project → Project Settings → Plugins**.
+3. Open `res://addons/glome/Examples/Minimal.tscn` and press **F6** (or click the **S³** main screen tab).
+
+You should see the red ring on the teal plinth with gates curving into the distance. [Quickstart](/getting-started/quickstart/)

@@ -1,0 +1,159 @@
+---
+title: "计算着色器 ABI"
+description: "Set 0 公共契约（ABI 1）描述符索引、RFC 风格字节布局表、着色器头文件、遍历钩子与 Set 1 扩展。"
+---
+
+import AbiRecordDiagram from '../../../../components/diagrams/AbiRecordDiagram.astro';
+
+<strong>Set 0 公共契约（ABI 1）</strong>在 [`glome_abi.glslinc`](https://github.com/mcthesw/Glome/blob/main/addons/glome/Shaders/glome_abi.glslinc) 中固定了 15 个 Vulkan 描述符绑定和 96 字节 `Camera` 推送常量。`GlomeBuffers` 在启动时校验七个 C# 结构体的大小与全部字段偏移；自定义着色器与内置 `glome_standard.glsl` 共用此布局。
+
+## Set 0 描述符
+
+| 绑定 | GLSL 符号 | 描述符 | 步长 / 格式 | 内容 |
+| --- | --- | --- | --- | --- |
+| 0 | `output_image` | `writeonly image2D` | `rgba8` | 输出像素图像（RGBA8 UNORM） |
+| 1 | `Faces` | `readonly buffer`（`std430`） | `160 B` | 按 BVH 顺序排列的 `Triangle tris[]` |
+| 2 | `Tree` | `readonly buffer`（`std430`） | `32 B` | 展平球冠 BVH `CapNode nodes[]` |
+| 3 | `Materials` | `readonly buffer`（`std430`） | `48 B` | `MaterialRecord material_records[]` |
+| 4 | `Diagnostics` | `buffer`（`std430`） | `64 B` | `Diagnostic probes[]`，输入射线与命中结果 |
+| 5 | `Lights` | `readonly buffer`（`std430`） | `16 + 32n B` | 16 B `uvec4 light_counts` 头部 + `LightRecord lights[]` |
+| 6 | `Environment` | `uniform Environment`（`std140`） | `80 B` | 环境统一块 `env` |
+| 7 | `bank0` | `texture2DArray` | sRGB RGBA8 | 反照率纹理库 0 |
+| 8 | `bank1` | `texture2DArray` | sRGB RGBA8 | 反照率纹理库 1 |
+| 9 | `bank2` | `texture2DArray` | sRGB RGBA8 | 反照率纹理库 2 |
+| 10 | `bank3` | `texture2DArray` | sRGB RGBA8 | 反照率纹理库 3 |
+| 11 | `nearest_repeat` | `sampler` | 线性 mip | 最近邻过滤，UV 重复 |
+| 12 | `linear_repeat` | `sampler` | 线性 mip | 线性过滤，UV 重复 |
+| 13 | `nearest_clamp` | `sampler` | 线性 mip | 最近邻过滤，UV 钳制 |
+| 14 | `linear_clamp` | `sampler` | 线性 mip | 线性过滤，UV 钳制 |
+| 推送 | `Camera` | `push_constant`（`std430`） | `96 B` | 相机标架、镜头与调度尺寸（`camera`） |
+
+工作组为 `8 × 8 × 1`（按视口向上取整调度，边缘调用须检查 `camera.dims.xy`）。未使用的纹理库由 1×1 白色纹理填充。
+
+## 记录字节布局
+
+下表每行固定 16 字节（四个 32 位字），C# 结构体均按 `Pack = 4` 顺序布局。
+
+### CameraPush（96 B）
+
+<AbiRecordDiagram record="CameraPush" lang="zh-CN" />
+
+`right`、`up`、`back`、`pos` 为 $\mathbb{R}^4$ 中的相机单位标架；`lens` 存放 `(R, tan(fov/2), elapsedSeconds, 0)`；`dims` 存放 `(width, height, bvhNodeCount, probeCount)`，其中 `probeCount == 0` 表示绘制图像。
+
+### TriangleRecord（160 B）
+
+<AbiRecordDiagram record="TriangleRecord" lang="zh-CN" />
+
+`plane` 为支撑大球面法向量，`dual0..2` 用于求球面重心权重。`inv_k_material` 存放 `(1/K_A, 1/K_B, 1/K_C, materialIndex)`，`uv01` 为 A/B 顶点 UV，`uv2` 以浮点数值存 `(uC, vC, surfaceId, traversalFlags)`，`n0..2` 为投影顶点法线。
+
+### CapRecord（32 B）
+
+<AbiRecordDiagram record="CapRecord" lang="zh-CN" />
+
+`center` 为 $\mathbb{R}^4$ 单位球冠中心，`bounds` 以浮点数值存 `(\cos\alpha, firstTriangle, triangleCount, escapeIndex)`（内部节点 `triangleCount == 0`）。
+
+### ProbeRecord（64 B）
+
+<AbiRecordDiagram record="ProbeRecord" lang="zh-CN" />
+
+宿主写入输入射线 `p` 与 `d`，着色器写回 `ids = (kind, id)`（`0` 未命中、`1` 地面、`2` 三角形；未命中或地面 ID 为 `-1`）、命中角 `angle`（弧度）与 `u, v`。
+
+### MaterialRecord（48 B）
+
+<AbiRecordDiagram record="MaterialRecord" lang="zh-CN" />
+
+`base_color` 为线性 RGBA，`emission_roughness` 为线性自发光 RGB 与粗糙度。`albedo_ref` 高 8 位选纹理库、低 24 位选图层（`0xffffffffu` 表示无纹理）。
+
+### LightRecord（32 B）
+
+<AbiRecordDiagram record="LightRecord" lang="zh-CN" />
+
+`Lights` 缓冲区以 16 字节 `uvec4 light_counts` 开头（依次为 `Directional`、`ShadowedDirectional`、`Omni`、`ShadowedOmni` 数量），随后每条记录占 32 字节、从 `16 + 32i` 字节开始（例如 `lights[2]` 位于偏移 `80` 字节）。平行光的 `radiance_cutoff.w` 为 `-1`，全向光为 $\cos(\operatorname{clamp}(\text{range}/R, 0, \pi))$。
+
+### EnvironmentBlock（80 B）
+
+<AbiRecordDiagram record="EnvironmentBlock" lang="zh-CN" />
+
+颜色均为线性 RGB，`fog_density.w` 为每米雾密度。`mode_ground_mat.xy` 存 `(shadingMode, groundMaterialIndex)`（负值关闭赤道地面），`ground_uv_xform` 存地面 UV 缩放 XY 与偏移 ZW。
+
+## 材质与遍历标志
+
+| 字段 | 掩码 | 位定义 |
+| --- | --- | --- |
+| `MaterialRecord.Flags` | `0x01` | `Unshaded` |
+| `MaterialRecord.Flags` | `0x06` | `CullMode << 1`（`0` 背面、`2` 正面、`4` 双面；实际遍历读三角形标志） |
+| `MaterialRecord.Flags` | `0x08` | `Nearest` 过滤（清零为线性） |
+| `MaterialRecord.Flags` | `0x10` | `Clamp` 寻址（清零为重复） |
+| `MaterialRecord.Flags` | `0x20` | `DisableMips`（强制 LOD 0） |
+| `TraversalFlags`（`uv2.w`） | `0x03` | `CullMask`：`CullBack = 0`、`CullFront = 1`、`TwoSided = 2` |
+| `TraversalFlags`（`uv2.w`） | `0x04` | `Cutout`（第 0 级 mip 透明裁切） |
+
+## Set 1 与管线特化
+
+`S3RenderProgram.CaptureSet1` 在构造与 `Rebuild` 时返回 `ProgramBuffer[]`（`UniformBuffer` 或 `StorageBuffer`），从 Set 1 绑定 `0` 起连续绑定；`UpdateProgramBuffer(binding, bytes)` 从偏移 `0` 原地覆写。
+
+`SpecializationValues` 中的每个整数编译一条特化**常量 ID 0** 的管线，`Draw(..., pipeline: i)` 按零起算数组下标选取。
+
+## 着色器头文件
+
+按以下顺序包含：
+
+```glsl title="glome_standard.glsl"
+#[compute]
+#version 450
+#include "res://addons/glome/Shaders/glome_abi.glslinc"
+#include "res://addons/glome/Shaders/glome_camera.glslinc"
+#include "res://addons/glome/Shaders/glome_intersections.glslinc"
+#include "res://addons/glome/Shaders/glome_lighting.glslinc"
+```
+
+`glome_abi.glslinc` 声明描述符、结构体、`PI`、`TAU`、`RAY_MIN = 0.00001` 与 `Hit { int kind, id; float t; vec2 uv; vec3 weights; }`。
+
+### glome_camera.glslinc
+
+| 函数 | 作用 |
+| --- | --- |
+| `vec2 screen_uv(ivec2 pixel)` | 像素中心归一化坐标 `(-1, 1)` |
+| `vec4 pixel_direction(vec2 uv)` | 单位视线切向量（前方为 `-back`，屏幕 Y 向下） |
+| `void write_probe(int i, Hit h)` | 将命中类型、ID、角距离和 UV 写入 `probes[i]` |
+
+### glome_intersections.glslinc
+
+| 函数 | 作用 |
+| --- | --- |
+| `vec4 sample_bank(texture2DArray bank, vec3 uv, uint flags, float lod)` | 按材质采样标志采样图层 `uv.z` |
+| `vec4 material_sample(MaterialRecord m, vec2 uv, float footprint)` | `base_color × albedo`，按足迹计算 mip LOD |
+| `ivec2 texel_address(ivec2 p, ivec2 size, bool clamped)` | 整数纹素坐标钳制或循环 |
+| `float base_alpha(texture2DArray bank, int layer, vec2 uv, uint flags)` | 第 0 级 alpha（最近邻或显式双线性） |
+| `bool covered(MaterialRecord m, vec2 uv)` | 透明裁切测试（`alpha >= alpha_cutoff`） |
+| `vec3 chart_weights(int j, vec3 beta)` | 经 `1/K` 修正的球面重心权重 |
+| `vec2 triangle_uv(int j, vec3 w)` | 插值三角形 UV |
+| `float first_root(float a, float b, float lo)` | $a\cos t + b\sin t = 0$ 的前向根（退化返回 `10.0`） |
+| `bool cap_hits(CapNode node, vec4 start, vec4 tangent, vec2 end_cs)` | 圆弧与球冠相交测试 |
+| `Hit trace(vec4 p, vec4 d, float lo, float hi, bool any_hit, int ignore)` | 追踪 `[lo, hi]`（$\le \pi$），跳过三角形 `ignore`（`-1` 为不跳过） |
+| `float uv_footprint(Triangle tri, vec4 x, vec2 uv, float angular)` | 估算用于 mip 选择的 UV 足迹 |
+| `vec4 bump_from_uv(Triangle tri, vec4 x, vec4 n, vec2 uv, vec2 dh)` | 根据 UV 高度偏导扰动切向法线 |
+| `vec4 smooth_normal(Triangle tri, vec3 weights, vec4 x)` | 插值切向法线（退化回退到 `tri.plane`） |
+| `Hit trace_primary(vec4 p, vec4 d)` | 追踪 `[RAY_MIN, π]`；无地面且未命中时从 `(-p, -d)` 续追至 `2π` |
+
+### glome_lighting.glslinc
+
+| 函数 | 作用 |
+| --- | --- |
+| `vec4 light_direction(vec4 x, vec4 source, out float angle)` | 指向 `source` 的单位切向量与测地角距离（弧度） |
+| `bool light_visible(vec4 x, vec4 geometric, vec4 source, int ignore)` | 测地阴影射线遮挡检测 |
+| `vec3 direct_light(MaterialRecord m, vec3 albedo, vec4 n, vec4 v, vec4 l)` | 漫反射 + GGX / Smith / Schlick 直接光 |
+| `vec3 geodesic_fog(vec3 color, float angle)` | 按透射率 $e^{-\rho R\theta}$ 混合雾色 |
+
+## 遍历钩子
+
+在 `#include "glome_intersections.glslinc"` 前定义，`trace` 按以下顺序调用（主射线与阴影射线共用）：
+
+| 钩子 | 调用时机 |
+| --- | --- |
+| `GLOME_GROUND_HOLE(x)` | 有效赤道交点处、地面覆盖检测前；返回 `true` 挖孔（与 CPU `GroundMask(x) = !hole(x)` 互补）。 |
+| `GLOME_OPAQUE_TWO_SIDED` | 跳过地面裁切覆盖、三角形面剔除与三角形裁切覆盖。 |
+| `GLOME_ANALYTIC_HIT(p,d,lo,any_hit,h)` | 地面之后、BVH 之前；遵守 `[lo, h.t]` 与 `any_hit` 就地更新 `h`。 |
+| `GLOME_EXCLUDE_CANDIDATE(j)` | 三角形包含测试之后、深度/剔除/裁切前；返回 `true` 跳过三角形 `j`。 |
+
+宿主打包与渲染器接口见[资源与运行时](/zh-cn/reference/resources-and-runtime/)。

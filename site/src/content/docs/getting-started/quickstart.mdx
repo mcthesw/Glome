@@ -1,0 +1,43 @@
+---
+title: "Quickstart"
+description: "Walk around Minimal.tscn, assemble a small walkable S³ scene, and try floorless flight."
+---
+
+Before starting, install the plugin and enable **S³ Editor** in [Installation](/getting-started/installation/).
+
+## Explore the example
+
+Open `res://addons/glome/Examples/Minimal.tscn` and press **F6**. Walk up to the central plinth to test collision, strafe around it, and look down the gallery.
+
+| Input | Action |
+| --- | --- |
+| `WASD` / Arrow keys | Move and strafe |
+| `Shift` | Sprint while walking |
+| `Space` / `Ctrl` | Ascend / descend in floorless flight |
+| Mouse | Look around |
+| `Esc` | Release or recapture the cursor |
+
+## Build a minimal scene
+
+Create a scene with the node tree below. Set `S3Space3D.Radius` to **14** and leave `AutoStart` enabled.
+
+```text title="Scene Tree"
+S3Space3D
+├── DirectionalLight3D
+├── S3Anchor3D
+│   ├── MeshInstance3D
+│   └── StaticBody3D
+│       └── CollisionShape3D
+└── S3CharacterController
+    └── S3Camera3D
+```
+
+1. Keep `S3Anchor3D` at `ChartPlacement = ParentChart` and move it to `(0, 0, -4)`.
+2. Give `MeshInstance3D` a `BoxMesh` of size `(1, 2, 1)`, a `StandardMaterial3D`, and local position `(0, 1, 0)` so it rests on the ground.
+3. Give `CollisionShape3D` a matching `BoxShape3D` of size `(1, 2, 1)` at `(0, 1, 0)`.
+4. Tilt `DirectionalLight3D` so its local `-Z` points toward the box.
+5. Keep `S3CharacterController` at the origin with `S3Camera3D` as its direct child (`Current = true`). Press **F6**.
+
+## Try floorless flight
+
+Stop the scene, turn off `EquatorialGroundEnabled` on `S3Space3D`, and press **F6** again. Without the equatorial floor, the controller starts in 6-DOF flight (`Space` / `Ctrl` move along camera up/down) while mesh colliders remain solid. [Explore Minimal.tscn](/getting-started/minimal-walkthrough/)

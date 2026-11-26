@@ -1,0 +1,26 @@
+---
+title: "内置渲染"
+description: "配置 S3Environment、切换 StandardLit / Unlit / ClayClean 模式，以及调整或关闭赤道地面。"
+---
+
+将 `S3Space3D.RenderProgram` 留空即可使用内置着色器（[`glome_standard.glsl`](https://github.com/mcthesw/Glome/blob/main/addons/glome/Shaders/glome_standard.glsl)），通过 `S3Space3D.Environment` 调整外观。
+
+## 三种内置模式
+
+- **`StandardLit`**：漫反射 + GGX 高光 + 高度相关 Smith 可见性 + Schlick 菲涅耳、测地线阴影、自发光，以及按实际射线弧长 $R t$ 计算的指数雾 $T = \exp(-\rho R t)$。
+- **`Unlit`**：仅输出反照率、自发光与距离雾，跳过灯光计算，适合核对贴图、UV 与透明裁剪。
+- **`ClayClean`**：中性素模法线着色配低对比度 1 m 地面网格，绕过场景配色、灯光与雾，适合检查轮廓与比例。
+
+![ClayClean 模式下的开孔板、圆柱与球体，脚下为中性 1 m 网格。](/media/shading-clay-clean.webp)
+
+## 环境设置
+
+在 `S3Space3D.Environment` 上配置 `BackgroundColor`、`AmbientColor`、`AmbientEnergy`、`FogColor`、`FogDensity`、`ShadingMode`、`EquatorialGroundEnabled` 与 `GroundMaterial`（完整默认值见 [S3Environment 参考](/zh-cn/reference/resources-and-runtime/#s3environment)）。运行时修改 `S3Environment` 属性后，需要重新烘焙（或在自定义宿主中调用 `GlomeComputeRenderer.UpdateEnvironment`）才会上传到 GPU。
+
+## 地面网格与无地面模式
+
+地面材质未指定反照率纹理时，`StandardLit` 与 `Unlit` 会按带符号大圆坐标 $R\arcsin(x)$、$R\arcsin(z)$ 绘制抗锯齿网格：细线间距 **1 m**、主线 **5 m**、暖色圆环标出原点、冷色圆环标出对跖点。
+
+为地面指定反照率纹理即可替换为普通铺装；启动前关闭 `EquatorialGroundEnabled` 则进入无地面模式（控制器切换为六自由度飞行，主射线未命中时可越过对跖点继续追踪至 $2\pi$）。
+
+![关闭赤道地面后的无地面画面。](/media/shading-floorless.webp)

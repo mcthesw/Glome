@@ -1,0 +1,37 @@
+---
+title: "Core library"
+description: "Reference Glome.Core directly from any .NET project without Godot."
+---
+
+`core/Glome.Core.csproj` exposes Glome's double-precision S³ math, spherical-cap BVH, swept collision, and acoustic path solver as a standalone library (`net8.0;net10.0`, zero Godot dependencies). It compiles `addons/glome/Core/` directly, sharing one source tree with the Godot add-on.
+
+## Add the project reference
+
+Reference `core/Glome.Core.csproj` from your `.NET` project:
+
+```bash title="Bash / PowerShell"
+dotnet add reference ../Glome/core/Glome.Core.csproj
+```
+
+## Example
+
+Move a quarter great-circle to the right from the origin (`R = 14 m` → arc length $\approx 21.99\text{ m}$):
+
+```csharp title="QuarterTurn.cs"
+using System;
+using Glome.Core;
+
+var start = S3Frame.Identity;
+var quarter = start.Travel(start.Right, Math.PI / 2);
+D4 point = quarter.P; // (1, 0, 0, 0)
+```
+
+[Full Core math API](/reference/core-math/)
+
+## Module layers
+
+| Layer | Responsibility | Location |
+| --- | --- | --- |
+| Core (pure C#) | Unit frames, geodesic triangles, spherical-cap BVH, swept collision, acoustic paths | `addons/glome/Core/` (`core/Glome.Core.csproj`) |
+| Godot adapters | Scene extraction, material/texture packing, shape adaptation, 3D audio rig | `GlomeBaker`, `CollisionShapeAdapter`, `S3AudioRig` |
+| Runtime & editor | GPU buffer packing, Vulkan compute renderer, automatic session, S³ editor screen | `GlomeBuffers`, `GlomeComputeRenderer`, `GlomeStandaloneSession`, `Glome.Editor` |

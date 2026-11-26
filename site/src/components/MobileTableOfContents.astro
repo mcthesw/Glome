@@ -1,0 +1,80 @@
+---
+import { Icon } from '@astrojs/starlight/components';
+
+const { toc } = Astro.locals.starlightRoute;
+interface TocItem {
+  depth: number;
+  slug: string;
+  text: string;
+  children: TocItem[];
+}
+function flatten(items: TocItem[], out: TocItem[] = []): TocItem[] {
+  for (const item of items) {
+    if (item.slug !== '_top') out.push(item);
+    if (item.children?.length) flatten(item.children, out);
+  }
+  return out;
+}
+const headings = toc ? flatten(toc.items) : [];
+---
+{headings.length > 0 && (
+  <details class="inline-toc print:hidden">
+    <summary>
+      <span>{Astro.locals.t('tableOfContents.onThisPage')}</span>
+      <Icon name="right-caret" class="caret" size="1rem" />
+    </summary>
+    <ul>
+      {headings.map(h => (
+        <li class:list={{ nested: h.depth > 2 }}>
+          <a href={`#${h.slug}`}>{h.text}</a>
+        </li>
+      ))}
+    </ul>
+  </details>
+)}
+
+<script>
+  for (const toc of document.querySelectorAll<HTMLDetailsElement>('details.inline-toc')) {
+    for (const link of toc.querySelectorAll('a')) {
+      link.addEventListener('click', () => { toc.open = false; });
+    }
+  }
+</script>
+
+<style>
+  .inline-toc {
+    margin: 1rem var(--sl-content-pad-x) 0;
+    padding: 0.6rem 0.9rem;
+    border-radius: 6px;
+    background: var(--gl-surface);
+    font-size: var(--gl-fs-sm);
+  }
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--gl-text-muted);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  details[open] summary { color: var(--gl-text); }
+  details[open] .caret { transform: rotate(90deg); }
+  ul {
+    list-style: none;
+    margin: 0.6rem 0 0;
+    padding: 0.5rem 0 0;
+    border-top: 1px solid var(--gl-border);
+    display: grid;
+    gap: 0.35rem;
+  }
+  li.nested { padding-inline-start: 1rem; }
+  a {
+    display: block;
+    padding-block: 0.15rem;
+    color: var(--gl-text-muted);
+    text-decoration: none;
+  }
+  a:hover { color: var(--gl-text); }
+</style>

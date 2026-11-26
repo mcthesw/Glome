@@ -1,0 +1,31 @@
+name: Core tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'addons/glome/Core/**'
+      - 'core/**'
+      - 'tests/Glome.Core.Tests/**'
+      - '.github/workflows/core-tests.yml'
+  pull_request:
+    paths:
+      - 'addons/glome/Core/**'
+      - 'core/**'
+      - 'tests/Glome.Core.Tests/**'
+      - '.github/workflows/core-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  core-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet test tests/Glome.Core.Tests/Glome.Core.Tests.csproj

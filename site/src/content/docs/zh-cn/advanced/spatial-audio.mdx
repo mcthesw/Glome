@@ -1,0 +1,59 @@
+---
+title: "空间音频"
+description: "用 S3AcousticPath 与 S3AudioRig 播放三维球面声源的直达声与反向绕行回声。"
+---
+
+import AcousticPathsDiagram from '../../../../components/diagrams/AcousticPathsDiagram.astro';
+
+在 $S^3$ 中，声源 $q$ 发出的声音会沿同一大圆从**两个相反方向**到达听者 $p$：短弧直达声（`+d`，距离 $R\theta$）与长弧绕行声（`−d`，距离 $R(2\pi - \theta)$）。
+
+<AcousticPathsDiagram lang="zh-CN" />
+
+## 声路规则
+
+| 声源位置 | 直达声（`+d`） | 绕行声（`−d`） |
+| --- | --- | --- |
+| 一般位置（$0 < \theta < \pi$） | $+d,\; R\theta$ | $-d,\; R(2\pi - \theta)$ |
+| 重合（$q = p$） | $+d,\; 0$ | $-d,\; 2\pi R$ |
+| 对跖点（$q = -p$） | $+d,\; \pi R$ | $-d,\; \pi R$ |
+
+当听者与声源重合或互为对跖点（$\lVert q - p(p\cdot q)\rVert \le 10^{-12}$）时，`S3AcousticPath.Resolve` 以归一化后的 `localFallback ?? D4.Up` 作为局部来向。
+
+## 播放直达声与延迟回声
+
+将脚本挂在任意 `Node` 上并在检查器指定 `Clip`：立即播放直达声，按 300 m/s 的传播时间差延迟播放反向回声。
+
+```csharp title="EchoExample.cs"
+#nullable enable
+using System;
+using Glome;
+using Glome.Core;
+using Godot;
+
+public partial class EchoExample : Node
+{
+    [Export] public AudioStream? Clip { get; set; }
+
+    public override void _Ready()
+    {
+        if (Clip is not { } clip) return;
+        var rig = new S3AudioRig { UseAudioCamera = GetViewport().GetCamera3D() is null };
+        AddChild(rig);
+
+        const double radius = 14;
+        var listener = S3Frame.Identity;
+        var source = new ArcRay(listener.P, listener.Right).At(Math.PI / 3);
+        var path = S3AcousticPath.Resolve(listener, source, radius);
+        double delay = (path.ComplementaryDistance - path.DirectDistance) / 300.0;
+
+        var model = AudioStreamPlayer3D.AttenuationModelEnum.InverseDistance;
+        var near = rig.CreateVoice("Direct", "Master", -3, 120, 10, model);
+        var far = rig.CreateVoice("Echo", "Master", -9, 120, 10, model);
+        rig.Play(clip, listener, source, radius,
+            new AudioPathVoice(near, -3),
+            new AudioPathVoice(far, -9, DelaySeconds: delay));
+    }
+}
+```
+
+若当前视口没有活跃 3D 相机，在 `_Ready()` 前将 `UseAudioCamera` 设为 `true`。省略 `DistanceOverride` 时，播放器与听者距离至少保留 `0.15 m` 以避免零距离衰减异常。[S3AudioRig 参考](/zh-cn/reference/nodes/)

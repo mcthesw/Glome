@@ -1,0 +1,293 @@
+---
+import '../../styles/instruments.css';
+interface Props { lang?: 'en' | 'zh-CN' }
+const zh = Astro.props.lang === 'zh-CN';
+
+const rhoDeg = 8;
+const rho = (rhoDeg * Math.PI) / 180;
+const fovHalfTan = Math.tan((35 * Math.PI) / 180); // 70 deg vertical FOV
+const initialChi = 150;
+
+// Orthographic side view of unit 2-sphere S² (radius R_svg = 82, center (140, 102))
+// Eye at (-1, 0, 0), Antipode at (+1, 0, 0).
+const cx = 140;
+const cy = 102;
+const R = 82;
+const gridAlphas = [15, 30, 45, 65];
+
+function sampleGeodesic(sinBeta: number, sign: number, tStart: number, tEnd: number) {
+  const steps = 28;
+  const pts: string[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = tStart + (i / steps) * (tEnd - tStart);
+    const x = cx - R * Math.cos(t);
+    const y = cy + sign * R * sinBeta * Math.sin(t);
+    pts.push((i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1));
+  }
+  return pts.join(' ');
+}
+
+function computeState(chiDeg: number) {
+  const chi = (chiDeg * Math.PI) / 180;
+  const sinBeta = Math.min(0.9999, Math.sin(rho) / Math.sin(chi));
+  const beta = Math.asin(sinBeta);
+  const betaDeg = (beta * 180) / Math.PI;
+  const fovPct = (Math.tan(beta) / fovHalfTan) * 100;
+  const eyeR = (fovPct / 100) * 70; // 140x140 frame -> half-height is 70
+  const tTan = Math.acos(Math.max(-1, Math.min(1, Math.cos(chi) / Math.cos(rho))));
+  const lx = cx - R * Math.cos(chi) * Math.cos(rho);
+  const lrx = R * Math.sin(chi) * Math.sin(rho);
+  const lry = R * Math.sin(rho);
+  const tx = cx - R * Math.cos(tTan);
+  const tyOff = R * sinBeta * Math.sin(tTan);
+  return {
+    betaDeg,
+    fovPct,
+    eyeR,
+    lx,
+    lrx,
+    lry,
+    tx,
+    tyTop: cy - tyOff,
+    tyBot: cy + tyOff,
+    rayTopFront: sampleGeodesic(sinBeta, -1, 0, tTan),
+    rayBotFront: sampleGeodesic(sinBeta, 1, 0, tTan),
+    rayTopBack: sampleGeodesic(sinBeta, -1, tTan, Math.PI),
+    rayBotBack: sampleGeodesic(sinBeta, 1, tTan, Math.PI),
+  };
+}
+
+const init = computeState(initialChi);
+const clipId = zh ? 'gl-eye-clip-zh' : 'gl-eye-clip-en';
+---
+<gl-landmark-size class="gl-figure not-content" data-rho-deg={rhoDeg}>
+  <div class="panels">
+    <div class="panel eye-panel">
+      <div class="panel-head">{zh ? '主视角（70° 视场）' : 'Eye view (70° FOV)'}</div>
+      <svg
+        class="eye-svg"
+        viewBox="0 0 140 140"
+        role="img"
+        aria-label={zh ? '70 度垂直视场内看到的球形地标剪影。' : 'Landmark silhouette inside a 70 degree vertical camera frame.'}
+      >
+        <defs>
+          <clipPath id={clipId}><rect x="0" y="0" width="140" height="140" rx="4" /></clipPath>
+        </defs>
+        <rect x="0" y="0" width="140" height="140" rx="4" fill="var(--gl-bg)" />
+        <line x1="0" y1="70" x2="140" y2="70" stroke="var(--gl-border)" stroke-dasharray="3 3" />
+        <line x1="70" y1="0" x2="70" y2="140" stroke="var(--gl-border)" stroke-dasharray="3 3" />
+        <g clip-path={`url(#${clipId})`}>
+          <circle data-eye-disc cx="70" cy="70" r={init.eyeR.toFixed(1)} fill="var(--gl-accent)" />
+        </g>
+      </svg>
+    </div>
+
+    <div class="panel side-panel">
+      <div class="panel-head">
+        <span>{zh ? 'S² 侧视角' : 'Side view on S²'}</span>
+        <span class="legend">
+          <i class="swatch" aria-hidden="true"></i>
+          {zh ? `恒定地标（ρ = ${rhoDeg}°）` : `Constant landmark (ρ = ${rhoDeg}°)`}
+        </span>
+      </div>
+      <svg
+        class="plot side-svg"
+        viewBox="0 0 280 216"
+        role="img"
+        aria-label={zh ? '固定球面侧视图：从视点出发的测地线在 90 度处最宽，随后向 180 度对跖点重新会聚，两条切线测地线准确相切于恒定大小的地标边缘。' : 'Fixed 2-sphere side view: geodesics from the eye spread to 90 degrees and reconverge at the 180 degree antipode, with two tangent geodesics grazing the constant-size landmark.'}
+      >
+        {/* Fixed outer 2-sphere boundary and fixed reference meridians */}
+        <circle cx={cx} cy={cy} r={R} fill="var(--gl-bg)" stroke="var(--gl-border)" stroke-width="1.2" />
+        {gridAlphas.map(deg => {
+          const ry = (R * Math.sin((deg * Math.PI) / 180)).toFixed(1);
+          return (
+            <g stroke="var(--gl-border)" stroke-width="0.9" fill="none" opacity="0.75">
+              <path d={`M ${cx - R} ${cy} A ${R} ${ry} 0 0 1 ${cx + R} ${cy}`} />
+              <path d={`M ${cx - R} ${cy} A ${R} ${ry} 0 0 0 ${cx + R} ${cy}`} />
+            </g>
+          );
+        })}
+        <line x1={cx - R} y1={cy} x2={cx + R} y2={cy} stroke="var(--gl-border)" stroke-width="1" />
+        <line x1={cx} y1={cy - R} x2={cx} y2={cy + R} stroke="var(--gl-border)" stroke-dasharray="3 3" stroke-width="1" />
+
+        {/* Continuation of grazing geodesics past tangent points toward the antipode */}
+        <path data-ray-top-back d={init.rayTopBack} fill="none" stroke="var(--gl-accent)" stroke-width="1.3" stroke-dasharray="3 3" opacity="0.65" />
+        <path data-ray-bot-back d={init.rayBotBack} fill="none" stroke="var(--gl-accent)" stroke-width="1.3" stroke-dasharray="3 3" opacity="0.65" />
+
+        {/* Solid grazing geodesics from the eye to the exact tangent points */}
+        <path data-ray-top-front d={init.rayTopFront} fill="none" stroke="var(--gl-accent)" stroke-width="2" />
+        <path data-ray-bot-front d={init.rayBotFront} fill="none" stroke="var(--gl-accent)" stroke-width="2" />
+
+        {/* Constant angular-radius landmark projected orthographically onto S² */}
+        <ellipse
+          data-landmark
+          cx={init.lx.toFixed(1)}
+          cy={cy}
+          rx={init.lrx.toFixed(1)}
+          ry={init.lry.toFixed(1)}
+          fill="var(--gl-accent)"
+          fill-opacity="0.28"
+          stroke="var(--gl-text)"
+          stroke-width="1.5"
+        />
+
+        {/* Exact tangency markers */}
+        <circle data-tan-top cx={init.tx.toFixed(1)} cy={init.tyTop.toFixed(1)} r="2.6" fill="var(--gl-accent)" />
+        <circle data-tan-bot cx={init.tx.toFixed(1)} cy={init.tyBot.toFixed(1)} r="2.6" fill="var(--gl-accent)" />
+
+        {/* Eye and Antipode poles */}
+        <circle cx={cx - R} cy={cy} r="3.6" fill="var(--gl-text)" />
+        <circle cx={cx + R} cy={cy} r="3" fill="var(--gl-text-muted)" />
+
+        <text x={cx - R} y="208" text-anchor="middle">{zh ? '视点 0°' : 'Eye 0°'}</text>
+        <text x={cx} y="208" text-anchor="middle" class="ink-muted">90°</text>
+        <text x={cx + R} y="208" text-anchor="middle" class="ink-muted">{zh ? '对跖点 180°' : 'Antipode 180°'}</text>
+      </svg>
+    </div>
+  </div>
+
+  <div class="slider-row">
+    <label class="gl-range">
+      <span>{zh ? '地标角距离 χ' : 'Landmark angular distance χ'}</span>
+      <span data-reading="chi">{initialChi}°</span>
+      <input type="range" name="chi" min="20" max="168" step="1" value={initialChi} aria-label={zh ? '地标角距离' : 'Landmark angular distance'} />
+    </label>
+    <dl class="gl-readouts">
+      <div>
+        <dt>{zh ? '视角半径 β' : 'Apparent half-angle β'}</dt>
+        <dd data-reading="beta">{init.betaDeg.toFixed(1)}°</dd>
+      </div>
+      <div>
+        <dt>{zh ? '占 70° 视场高度' : '70° FOV height'}</dt>
+        <dd data-reading="fov">{init.fovPct.toFixed(0)}%</dd>
+      </div>
+    </dl>
+  </div>
+</gl-landmark-size>
+
+<script>
+  class LandmarkSize extends HTMLElement {
+    connectedCallback() {
+      const rho = (Number(this.dataset.rhoDeg ?? 8) * Math.PI) / 180;
+      const fovHalfTan = Math.tan((35 * Math.PI) / 180);
+      const cx = 140, cy = 102, R = 82;
+      const input = this.querySelector<HTMLInputElement>('input[name="chi"]')!;
+      const eyeDisc = this.querySelector('[data-eye-disc]')!;
+      const landmark = this.querySelector('[data-landmark]')!;
+      const rayTopFront = this.querySelector('[data-ray-top-front]')!;
+      const rayBotFront = this.querySelector('[data-ray-bot-front]')!;
+      const rayTopBack = this.querySelector('[data-ray-top-back]')!;
+      const rayBotBack = this.querySelector('[data-ray-bot-back]')!;
+      const tanTop = this.querySelector('[data-tan-top]')!;
+      const tanBot = this.querySelector('[data-tan-bot]')!;
+      const chiOut = this.querySelector('[data-reading="chi"]')!;
+      const betaOut = this.querySelector('[data-reading="beta"]')!;
+      const fovOut = this.querySelector('[data-reading="fov"]')!;
+
+      const sample = (sinBeta: number, sign: number, tStart: number, tEnd: number) => {
+        const steps = 28;
+        const pts: string[] = [];
+        for (let i = 0; i <= steps; i++) {
+          const t = tStart + (i / steps) * (tEnd - tStart);
+          const x = cx - R * Math.cos(t);
+          const y = cy + sign * R * sinBeta * Math.sin(t);
+          pts.push((i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1));
+        }
+        return pts.join(' ');
+      };
+
+      const render = (chiDeg: number) => {
+        const chi = (chiDeg * Math.PI) / 180;
+        const sinBeta = Math.min(0.9999, Math.sin(rho) / Math.sin(chi));
+        const beta = Math.asin(sinBeta);
+        const betaDeg = (beta * 180) / Math.PI;
+        const fovPct = (Math.tan(beta) / fovHalfTan) * 100;
+        const eyeR = (fovPct / 100) * 70;
+        const tTan = Math.acos(Math.max(-1, Math.min(1, Math.cos(chi) / Math.cos(rho))));
+
+        eyeDisc.setAttribute('r', eyeR.toFixed(1));
+        landmark.setAttribute('cx', (cx - R * Math.cos(chi) * Math.cos(rho)).toFixed(1));
+        landmark.setAttribute('rx', (R * Math.sin(chi) * Math.sin(rho)).toFixed(1));
+        landmark.setAttribute('ry', (R * Math.sin(rho)).toFixed(1));
+
+        rayTopFront.setAttribute('d', sample(sinBeta, -1, 0, tTan));
+        rayBotFront.setAttribute('d', sample(sinBeta, 1, 0, tTan));
+        rayTopBack.setAttribute('d', sample(sinBeta, -1, tTan, Math.PI));
+        rayBotBack.setAttribute('d', sample(sinBeta, 1, tTan, Math.PI));
+
+        const tx = (cx - R * Math.cos(tTan)).toFixed(1);
+        const tyOff = R * sinBeta * Math.sin(tTan);
+        tanTop.setAttribute('cx', tx);
+        tanTop.setAttribute('cy', (cy - tyOff).toFixed(1));
+        tanBot.setAttribute('cx', tx);
+        tanBot.setAttribute('cy', (cy + tyOff).toFixed(1));
+
+        chiOut.textContent = `${chiDeg}°`;
+        betaOut.textContent = `${betaDeg.toFixed(1)}°`;
+        fovOut.textContent = `${fovPct.toFixed(0)}%`;
+      };
+
+      input.addEventListener('input', () => render(input.valueAsNumber));
+    }
+  }
+  customElements.define('gl-landmark-size', LandmarkSize);
+</script>
+
+<style>
+  .panels {
+    display: grid;
+    grid-template-columns: minmax(9.5rem, 11.5rem) minmax(0, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+  }
+  .panel {
+    display: grid;
+    gap: 0.55rem;
+    min-width: 0;
+  }
+  .panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.35rem 0.75rem;
+    color: var(--gl-text-muted);
+    font-size: var(--gl-fs-sm);
+  }
+  .legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-family: var(--sl-font-mono);
+  }
+  .swatch {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--gl-accent);
+    display: inline-block;
+  }
+  .eye-svg {
+    display: block;
+    width: 100%;
+    max-width: 11.5rem;
+    height: auto;
+  }
+  .side-svg {
+    --gl-plot-max-height: 15.5rem;
+  }
+  .slider-row {
+    display: grid;
+    gap: 0.9rem;
+    margin-top: 1.1rem;
+  }
+  @media (max-width: 38rem) {
+    .panels {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1.1rem;
+    }
+    .eye-svg {
+      max-width: 9.5rem;
+    }
+  }
+</style>

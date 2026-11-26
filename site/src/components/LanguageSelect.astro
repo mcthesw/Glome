@@ -1,0 +1,71 @@
+---
+import { Icon } from '@astrojs/starlight/components';
+import { getEntry, render } from 'astro:content';
+
+interface Props { includeAnchorMap?: boolean }
+const { includeAnchorMap = false } = Astro.props;
+const { id, lang, headings } = Astro.locals.starlightRoute;
+const chinese = lang === 'zh-CN';
+const pageId = id.replace(/^zh-cn(?:\/|$)/, '');
+const targetId = chinese ? pageId : ['zh-cn', pageId].filter(Boolean).join('/');
+const href = pageId === '404' ? `/${targetId}.html` : targetId ? `/${targetId}/` : '/';
+
+const anchorPairs = [['_top', '_top']];
+if (includeAnchorMap && headings.length) {
+  const translation = await getEntry('docs', targetId);
+  const target = translation ? (await render(translation)).headings : [];
+  const aligned = headings.length === target.length && headings.every((h, i) => h.depth === target[i].depth);
+  for (const [i, heading] of headings.entries()) {
+    const peer = aligned ? target[i] : target.find(h => h.slug === heading.slug);
+    if (peer) anchorPairs.push([heading.slug, peer.slug]);
+  }
+}
+---
+<a
+  class="gl-language"
+  href={href}
+  hreflang={chinese ? 'en' : 'zh-CN'}
+  aria-label={chinese ? 'Switch language to English' : '切换至简体中文'}
+  data-anchors={includeAnchorMap ? JSON.stringify(anchorPairs) : undefined}
+>
+  <Icon name="translate" size="1.05rem" />
+  <span lang={chinese ? 'en' : 'zh-CN'}>{chinese ? 'English' : '中文'}</span>
+</a>
+
+<script>
+  const links = document.querySelectorAll<HTMLAnchorElement>('.gl-language');
+  const pairs = document.querySelector<HTMLAnchorElement>('.gl-language[data-anchors]')?.dataset.anchors;
+  const anchors = new Map<string, string>(JSON.parse(pairs ?? '[]'));
+  function syncLocation() {
+    let hash = '';
+    try {
+      hash = anchors.get(decodeURIComponent(location.hash.slice(1))) ?? '';
+    } catch { /* Malformed fragment has no matching section. */ }
+    for (const link of links) {
+      link.search = location.search;
+      link.hash = hash;
+    }
+  }
+  syncLocation();
+  window.addEventListener('hashchange', syncLocation);
+</script>
+
+<style>
+  .gl-language {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: none;
+    min-height: 2rem;
+    padding: 0.25rem 0.55rem;
+    border-radius: 4px;
+    color: var(--gl-text-muted);
+    font-size: var(--gl-fs-sm);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .gl-language:hover {
+    color: var(--gl-text);
+    background: var(--gl-surface);
+  }
+</style>

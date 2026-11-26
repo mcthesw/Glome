@@ -1,0 +1,44 @@
+---
+title: "材质、灯光与碰撞"
+description: "支持烘焙的 StandardMaterial3D 属性、球面光源，以及包括可走台面在内的碰撞代理。"
+---
+
+## 材质
+
+为三角形或三角带 `MeshInstance3D` 表面（支持材质覆盖）或 `S3Environment.GroundMaterial` 指定 `StandardMaterial3D`。
+
+| 类别 | 参与烘焙的属性 |
+| --- | --- |
+| 颜色 | `AlbedoColor` × `AlbedoTexture`、UV1 缩放与偏移；缺少 UV 时回退到切图 X/Z 坐标。 |
+| 光照 | 标量 `Roughness`、`Metallic`、`Unshaded` 标记，以及线性化自发光 × `EmissionEnergyMultiplier`。 |
+| 剔除与透明 | 背面/正面/关闭剔除、不透明表面，以及配合 `AlphaScissorThreshold` 的 `AlphaScissor`。 |
+| 采样 | 最近邻/线性过滤、重复/钳制寻址，以及启用 mipmap 的过滤模式。 |
+
+暂不支持的特性（ORM、法线、粗糙度、金属度、AO、自发光贴图、半透明混合、骨骼蒙皮）会在烘焙时对每个资源警告一次；非标准材质回退为默认白色。
+
+### 纹理库与透明裁剪
+
+`TextureBankPacker` 按精确分辨率将反照率纹理打包到至多四个 `texture2DArray` 纹理库中。超出四种分辨率时，使用最多的三组保持原尺寸，其余共享 `bank3` 并缩放至该溢出组的最大宽高。
+
+对于 `AlphaScissor`，CPU 拾取与 GPU 主射线/阴影射线均在第 0 级 mip 以一致规则判断 `反照率 alpha × 纹理 alpha ≥ 阈值`。
+
+## 灯光
+
+- **`DirectionalLight3D`**：沿局部 `−Z` 照射，烘焙时保存变换后的 `+Z` 极点。
+- **`OmniLight3D`**：将节点位置投影到 $S^3$，`OmniRange` 为测地照射距离（m），截止余弦为 $c = \cos(\operatorname{clamp}(\mathrm{OmniRange}/R, 0, \pi))$，范围内按剩余角比例平方衰减。
+
+开启 `ShadowEnabled` 后，`StandardLit` 会沿最短测地线追踪阴影。
+
+## 碰撞
+
+在局部切图中放置启用的 `CollisionShape3D`。
+
+| 形状资源 | 用途 |
+| --- | --- |
+| `BoxShape3D` | 墙体、立柱等实心盒体障碍。 |
+| `CylinderShape3D` | 局部 Y 轴向实心圆柱（如 `Minimal.tscn` 中央基座）。 |
+| `WalkableBoxShape3D` | **可走台面**：局部 `+Y` 顶面承托行走，侧面和底面保持实体，可用于可跨越也可下穿的桥面。 |
+
+对 `WalkableBoxShape3D` 施加剪切变换即可制作楼梯斜坡。`S3Elevation` 支持最高 **0.45 m** 的上台阶高度，下坡贴合台面，离开边缘按 **9.81 m/s²** 重力下落。
+
+**收集与可见性规则。** `S3Space3D.BakeVisibilityPolicy`（`HonoredUpToRoot` 或 `SelfVisible`）仅过滤网格和灯光。空间内所有启用且受支持的 `CollisionShape3D`（包括隐藏节点或 `Area3D` 下的形状）目前都会烘焙为实体碰撞；如需排除，请勾选 `CollisionShape3D.Disabled` 后重新烘焙。
