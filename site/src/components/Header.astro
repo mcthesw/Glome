@@ -80,10 +80,8 @@ const { siteTitleHref, hasSidebar } = Astro.locals.starlightRoute;
     .source { display: none; }
     .toolbar.has-sidebar .locale,
     .toolbar.has-sidebar .theme { display: none; }
-    .toolbar:not(.has-sidebar) .theme { width: 1.8rem; }
-    .toolbar:not(.has-sidebar) .theme :global(select) { width: 2rem; height: 2.25rem; padding: 0; color: transparent; }
-    .toolbar:not(.has-sidebar) .theme :global(.caret) { display: none; }
-    .toolbar:not(.has-sidebar) .theme :global(.label-icon) { font-size: var(--gl-fs-base); inset-inline-start: 0.25rem; }
+    .toolbar:not(.has-sidebar) .theme :global(.gl-theme-label) { display: none; }
+    .toolbar:not(.has-sidebar) .theme :global(.gl-theme) { padding: 0.25rem 0.4rem; }
     .search :global(button) { justify-content: center; min-width: 2rem; }
   }
 </style>

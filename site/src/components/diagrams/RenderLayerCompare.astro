@@ -130,12 +130,18 @@ const initial = variants[1];
     top: 50%;
     left: -1px;
     transform: translate(-50%, -50%);
-    padding: 0.1rem 0.35rem;
-    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    border: 1.5px solid var(--gl-accent);
     background: var(--gl-bg);
     color: var(--gl-accent);
     font-family: var(--sl-font-mono);
-    font-size: var(--gl-fs-base);
+    font-size: var(--gl-fs-sm);
+    line-height: 1;
     white-space: nowrap;
   }
   .split input {

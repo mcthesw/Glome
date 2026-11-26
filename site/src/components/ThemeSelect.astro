@@ -1,0 +1,82 @@
+---
+import { Icon } from '@astrojs/starlight/components';
+const zh = Astro.locals.starlightRoute.lang === 'zh-CN';
+---
+<gl-theme-toggle>
+  <button
+    type="button"
+    class="gl-theme"
+    aria-label={zh ? '切换深色或浅色主题' : 'Toggle dark or light theme'}
+  >
+    <span class="gl-theme-dark">
+      <Icon name="moon" size="1rem" />
+      <span class="gl-theme-label">{zh ? '深色' : 'Dark'}</span>
+    </span>
+    <span class="gl-theme-light">
+      <Icon name="sun" size="1rem" />
+      <span class="gl-theme-label">{zh ? '浅色' : 'Light'}</span>
+    </span>
+  </button>
+</gl-theme-toggle>
+
+<script>
+  const storageKey = 'starlight-theme';
+  function applyTheme(next: 'dark' | 'light') {
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem(storageKey, next);
+    } catch { /* Storage may be disabled. */ }
+  }
+  class GlThemeToggle extends HTMLElement {
+    connectedCallback() {
+      const btn = this.querySelector('button');
+      if (!btn || btn.dataset.bound) return;
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', () => {
+        const current = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+        applyTheme(current === 'light' ? 'dark' : 'light');
+      });
+    }
+  }
+  if (!customElements.get('gl-theme-toggle')) {
+    customElements.define('gl-theme-toggle', GlThemeToggle);
+  }
+</script>
+
+<style>
+  gl-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+  .gl-theme {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 2rem;
+    padding: 0.25rem 0.55rem;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--gl-text-muted);
+    font-family: var(--sl-font);
+    font-size: var(--gl-fs-sm);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .gl-theme:hover {
+    color: var(--gl-text);
+    background: var(--gl-surface);
+  }
+  .gl-theme-dark,
+  .gl-theme-light {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  :global(:root[data-theme='light']) .gl-theme-dark {
+    display: none;
+  }
+  :global(:root:not([data-theme='light'])) .gl-theme-light {
+    display: none;
+  }
+</style>

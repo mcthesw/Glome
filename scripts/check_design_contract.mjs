@@ -114,16 +114,20 @@ function checkFile(path) {
 
   // Match both CSS and JS style object spelling; SVG presentation attributes use '='.
   function checkPaint(styles, offset = 0) {
-    const paint = /\b(?:color|background(?:-color|Color)?|fill|stroke|stop-color|stopColor|flood-color|floodColor|lighting-color|lightingColor|border-color|borderColor|outline-color|outlineColor|text-decoration-color|textDecorationColor)\s*["']?\s*[:=]\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^;{}\r\n,]+))/gi;
+    const paint = /(?<![-\w])(?:color|scrollbar-color|background(?:-color|Color)?|fill|stroke|stop-color|stopColor|flood-color|floodColor|lighting-color|lightingColor|border-color|borderColor|outline-color|outlineColor|text-decoration-color|textDecorationColor)\s*["']?\s*[:=]\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^;{}\r\n,]+))/gi;
     for (const match of styles.matchAll(paint)) {
-      const value = (match[1] ?? match[2] ?? match[3]).trim().replace(/\s*!important$/, '');
-      // Dynamic expressions and non-paint background values are not literal colors.
-      if (!value || /^[{]|^url\(/i.test(value)) continue;
-      if (allowedColor.test(value) || approvedColors.has(value.toLowerCase())) continue;
-      if (/^var\(/i.test(value)) {
-        report(offset + match.index, `Unapproved paint variable: ${value}`);
-      } else if (/^[a-z]+$/i.test(value) && !/^(?:initial|unset|revert|revert-layer)$/i.test(value)) {
-        report(offset + match.index, `Unregistered named paint: ${value}`);
+      const raw = (match[1] ?? match[2] ?? match[3]).trim().replace(/\s*!important$/, '');
+      const prop = match[0].split(/[:=]/, 1)[0].trim().toLowerCase();
+      const values = prop === 'scrollbar-color' ? raw.match(/var\([^)]+\)|\S+/g) ?? [] : [raw];
+      for (const value of values) {
+        // Dynamic expressions and non-paint background values are not literal colors.
+        if (!value || /^[{]|^url\(/i.test(value)) continue;
+        if (allowedColor.test(value) || approvedColors.has(value.toLowerCase())) continue;
+        if (/^var\(/i.test(value)) {
+          report(offset + match.index, `Unapproved paint variable: ${value}`);
+        } else if (/^[a-z]+$/i.test(value) && !/^(?:initial|unset|revert|revert-layer|auto)$/i.test(value)) {
+          report(offset + match.index, `Unregistered named paint: ${value}`);
+        }
       }
     }
   }

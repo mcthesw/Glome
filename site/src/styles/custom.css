@@ -88,7 +88,7 @@
   --sl-shadow-md: none;
   --sl-shadow-lg: none;
 
-  --sl-content-width: 48rem;
+  --sl-content-width: 52rem;
   --sl-sidebar-width: 16rem;
   --sl-mobile-toc-height: 0rem;
   --sl-nav-height: 3.5rem;
@@ -153,6 +153,31 @@ body { font-variant-numeric: tabular-nums; }
 :root { color-scheme: dark; }
 :root[data-theme='light'] { color-scheme: light; }
 
+/* Theme-matched thin scrollbars (WebKit/Chromium + Firefox fallback) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--gl-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gl-text-muted);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--gl-border) transparent;
+  }
+}
+
 :is(.main-pane, .sl-container, .content-panel, .sl-markdown-content) { min-width: 0; }
 .sl-markdown-content { overflow-wrap: break-word; }
 
@@ -179,25 +204,54 @@ site-search dialog::backdrop { all: revert; background: var(--gl-bg); opacity: 0
   overflow-wrap: anywhere;
 }
 
-.sl-markdown-content :is(table, .katex-display):not(:where(.not-content *)) {
+.sl-markdown-content .katex-display:not(:where(.not-content *)) {
   max-width: 100%;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
 }
+.sl-markdown-content table:not(:where(.not-content *)) {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--gl-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
 .sl-markdown-content table:not(:where(.not-content *)) :not(pre) > code {
-  overflow-wrap: normal;
+  padding: 0.08em 0.25em;
+  font-size: 0.8125rem;
+  overflow-wrap: break-word;
   word-break: normal;
   white-space: normal;
 }
 .katex-display { padding-block: 0.4rem; }
-.sl-markdown-content table:not(:where(.not-content *)) { display: block; font-size: var(--gl-fs-sm); font-variant-numeric: tabular-nums; }
 .sl-markdown-content th .prose-column { display: block; min-inline-size: 14rem; }
-.sl-markdown-content th:not(:where(.not-content *)) { white-space: nowrap; }
 .sl-markdown-content :is(th, td):not(:where(.not-content *)) {
-  padding: 0.65rem 0.85rem;
+  padding: 0.6rem 0.65rem;
   border-bottom: 1px solid var(--gl-border);
+  vertical-align: top;
+  overflow-wrap: break-word;
 }
 .sl-markdown-content thead:not(:where(.not-content *)) { background: var(--gl-surface); }
+@media (min-width: 50rem) {
+  .sl-markdown-content table:not(:where(.not-content *)):has(tbody td:first-child > code) {
+    table-layout: fixed;
+  }
+  .sl-markdown-content table:not(:where(.not-content *)):has(tbody td:first-child > code):has(thead th:nth-child(2)):not(:has(thead th:nth-child(3))) th:nth-child(1) { width: 40%; }
+  .sl-markdown-content table:not(:where(.not-content *)):has(tbody td:first-child > code):has(thead th:nth-child(2)):not(:has(thead th:nth-child(3))) th:nth-child(2) { width: 60%; }
+  .sl-markdown-content table:not(:where(.not-content *)):has(tbody td:first-child > code):has(thead th:nth-child(4)):not(:has(thead th:nth-child(5))) th:nth-child(1) { width: 27%; }
+  .sl-markdown-content table:not(:where(.not-content *)):has(tbody td:first-child > code):has(thead th:nth-child(4)):not(:has(thead th:nth-child(5))) th:nth-child(2) { width: 21%; }
+  .sl-markdown-content table:not(:where(.not-content *)):has(tbody td:first-child > code):has(thead th:nth-child(4)):not(:has(thead th:nth-child(5))) th:nth-child(3) { width: 12%; }
+  .sl-markdown-content table:not(:where(.not-content *)):has(tbody td:first-child > code):has(thead th:nth-child(4)):not(:has(thead th:nth-child(5))) th:nth-child(4) { width: 40%; }
+}
+@media (max-width: 49.99rem) {
+  .sl-markdown-content table:not(:where(.not-content *)) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+  .sl-markdown-content th:not(:where(.not-content *)) { white-space: nowrap; }
+}
 
 .sl-markdown-content .starlight-aside {
   border: 0;

@@ -39,6 +39,7 @@ export default defineConfig({
         MarkdownContent: './src/components/MarkdownContent.astro',
         Hero: './src/components/Hero.astro',
         ThemeProvider: './src/components/ThemeProvider.astro',
+        ThemeSelect: './src/components/ThemeSelect.astro',
       },
       locales: {
         root: { label: 'English', lang: 'en' },
