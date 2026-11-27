@@ -3,7 +3,7 @@ title: "Editor workflow"
 description: "Use the S³ main screen to preview curvature, pick geometry, move anchors with undo, and rescale a scene."
 ---
 
-Open any scene with an `S3Space3D` and click **S³** at the top of Godot. Model local assemblies in the ordinary **3D** viewport, then check their $S^3$ silhouette and placement in **S³**.
+Open a scene containing an `S3Space3D` and click **S³** at the top of Godot to build the scene directly on the sphere. Select an anchor and use **Focus** (**F**) to frame it. Use **Q / W / E** to select, move, or rotate. Hold **Ctrl** while dragging to snap by 0.5 metres of arc or 15 degrees. In the **Anchor** menu, choose **New Anchor Here** to place an anchor on the ground ahead of the camera, or **Duplicate at Antipode** to copy the selected anchor and its assembly to the opposite point. Open the ordinary **3D** viewport when editing local meshes within a single anchor's tangent chart.
 
 ![Godot S³ main screen showing the raytraced preview between the Scene tree and Inspector.](/media/editor-s3-mainscreen.webp)
 
@@ -12,17 +12,20 @@ Open any scene with an `S3Space3D` and click **S³** at the top of Godot. Model 
 | Control | Action |
 | --- | --- |
 | **Space** / **ViewMode** | Pick the active space (when multiple exist) and preview mode (`StandardLit`, `ClayClean`, `Unlit`, or custom providers). |
-| **Reset View** / **Focus (F)** | Reset camera and pivot, or frame the selected anchor (`F` while the preview has focus). |
+| **Origin** / **Focus (F)** | Reset to the origin view, or smoothly frame the selected anchor (`F` while the preview has focus). |
 | **From 3D** | Map the 3D viewport camera into $S^3$, smoothly blending near anchors with `EditorChartRadius > 0`. |
-| **Flip Antipode (180°)** | Jump to the camera's antipode and look back at the current pivot. |
-| **Rebake** / **Bookmarks** | Rebake the preview or save/restore named camera bookmarks. |
+| **Antipode** / **Level** | Jump to the exact antipode keeping local orientation, or level the horizon and pitch. |
+| **Select / Move / Rotate** | Switch between select (**Q**), geodesic move (**W**), and 3-axis rotate (**E**) gizmos, with **Snap** (**Ctrl**) and **Shift** fine control. |
+| **Anchor** | Create a new anchor ahead of the camera (**New Anchor Here**), clone to the exact antipode (**Duplicate at Antipode**), snap to ground, or face origin with full Undo/Redo. |
+| **Rebake** / **Bookmarks** | Trigger a manual rebake or save/restore named camera bookmarks; live edit previews coalesce and cancel superseded async bakes. |
 
 | Input in preview | Action |
 | --- | --- |
-| Hold RMB + mouse, `WASD`, `Q`/`E` | Fly (`Shift` for 2.5× speed; scroll while flying to tune speed 2–32 m/s). |
+| Hold RMB + mouse, `WASD`, `Q`/`E` | Fly (`Shift` for boost; scroll while flying to tune speed 0.25–128 m/s). |
+| `Q` / `W` / `E`, `F` (when not flying) | Switch select / move / rotate tool; press **F** to frame the selected anchor. |
 | MMB drag / `Shift` + MMB drag | Orbit pivot / pan camera and pivot. |
 | Scroll | Dolly along view direction. |
-| LMB | Pick geometry via the spherical-cap BVH and set orbit pivot (ground click clears selection). |
+| LMB | Pick geometry or anchor pins via the spherical-cap BVH and set orbit pivot (ground click clears selection). |
 
 ## Moving anchors and scaling a scene
 
