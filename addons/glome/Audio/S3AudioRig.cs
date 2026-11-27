@@ -8,11 +8,19 @@ namespace Glome;
 public readonly record struct AudioPathVoice(AudioStreamPlayer3D Player, float GainDb, float Pitch = 1,
                                             double DelaySeconds = 0, float? DistanceOverride = null);
 
+public readonly record struct S3AudioArrival(D4 Source, bool Complementary, D4? LocalFallback);
+
 [GlobalClass]
 public partial class S3AudioRig : Node3D
 {
     // Enable before entering a viewport whose renderer has no current 3D camera.
     [Export] public bool UseAudioCamera { get; set; }
+
+    /// <summary>Raised when an in-range path starts playing, including a delayed complementary arrival.</summary>
+    public event Action<AudioStream, S3AudioArrival>? Arrived;
+    private int _generation;
+
+    public void CancelPendingPlayback() => _generation++;
 
     public override void _Ready()
     {
@@ -46,19 +54,23 @@ public partial class S3AudioRig : Node3D
         var path = S3AcousticPath.Resolve(listener, source, radius, localFallback);
         D4 d = path.LocalDirection;
         Vector3 direction = new((float)d.X, (float)d.Y, (float)d.Z);
-        Schedule(direct, direction, path.DirectDistance);
-        if (complementary is { } echo) Schedule(echo, -direction, path.ComplementaryDistance);
+        int generation = _generation;
+        Schedule(direct, direction, path.DirectDistance, false);
+        if (complementary is { } echo) Schedule(echo, -direction, path.ComplementaryDistance, true);
 
-        void Schedule(AudioPathVoice voice, Vector3 arrival, double distance)
+        void Schedule(AudioPathVoice voice, Vector3 arrival, double distance, bool complementaryPath)
         {
             void Start()
             {
-                if (!IsInstanceValid(voice.Player) || !voice.Player.IsInsideTree()) return;
-                voice.Player.Position = arrival * (voice.DistanceOverride ?? Math.Max(0.15f, (float)distance));
+                if (generation != _generation || !IsInstanceValid(voice.Player) || !voice.Player.IsInsideTree()) return;
+                float metres = voice.DistanceOverride ?? Math.Max(0.15f, (float)distance);
+                voice.Player.Position = arrival * metres;
                 voice.Player.Stream = stream;
                 voice.Player.VolumeDb = voice.GainDb;
                 voice.Player.PitchScale = voice.Pitch;
                 voice.Player.Play();
+                if (voice.Player.MaxDistance <= 0 || metres < voice.Player.MaxDistance)
+                    Arrived?.Invoke(stream, new(source, complementaryPath, localFallback));
             }
             if (voice.DelaySeconds > 0) GetTree().CreateTimer(voice.DelaySeconds).Timeout += Start;
             else Start();
