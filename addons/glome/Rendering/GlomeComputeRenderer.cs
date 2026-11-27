@@ -20,6 +20,7 @@ public sealed class GlomeComputeRenderer : IDisposable
     public ConcurrentQueue<string> Timings { get; } = new();
 
     private readonly S3RenderProgram _program;
+    private readonly byte[]? _staticShaderCode;
     // Only the render thread touches device state and the two cached output sizes.
     private RenderingDevice? _rd;
     private Rid _shader, _faces, _tree, _materials, _lights, _environment, _probes, _image, _set;
@@ -53,6 +54,7 @@ public sealed class GlomeComputeRenderer : IDisposable
     {
         _program = program ?? new GlomeStandardProgram();
         var spirv = _program.GetComputeSpirV();
+        if (program is { CaptureSet1: null }) _staticShaderCode = spirv.BytecodeCompute;
         _specializations = (int[])_program.SpecializationValues.Clone();
         var bindings = _program.CaptureSet1?.Invoke() ?? [];
         _pipelines = new Rid[Math.Max(1, _specializations.Length)];
@@ -83,6 +85,13 @@ public sealed class GlomeComputeRenderer : IDisposable
             ResizeImage(size);
         });
     }
+
+    // A provider can retain a fixed, binding-free program across bakes. A reimported
+    // shader or a changed specialization still needs a new pipeline.
+    internal bool CanReuseStaticProgram(S3RenderProgram program) =>
+        _staticShaderCode != null && ReferenceEquals(_program, program) && program.CaptureSet1 == null &&
+        _specializations.AsSpan().SequenceEqual(program.SpecializationValues) &&
+        _staticShaderCode.AsSpan().SequenceEqual(program.GetComputeSpirV().BytecodeCompute);
 
     private static Rid Valid(Rid rid, string resource) =>
         rid.IsValid ? rid : throw new InvalidOperationException($"Could not create {resource}.");
@@ -202,6 +211,7 @@ public sealed class GlomeComputeRenderer : IDisposable
 
     private void Upload(GlomeBuffers scene, ProgramBuffer[] bindings)
     {
+        long start = Stopwatch.GetTimestamp();
         ReleaseScene();
         _faces = Buffer(scene.Triangles);
         _tree = Buffer(scene.Nodes);
@@ -227,6 +237,7 @@ public sealed class GlomeComputeRenderer : IDisposable
             _programTypes[i] = binding.Type;
         }
         _programSet = CreateProgramSet(_shader);
+        scene.Timings?.Uploaded(start);
     }
 
     private Rid AcquireBank(int i, TextureBank bank)
@@ -235,7 +246,7 @@ public sealed class GlomeComputeRenderer : IDisposable
         int hit = bank.Reusable ? resident.FindIndex(entry =>
             entry.Bank.Reusable && entry.Bank.Width == bank.Width && entry.Bank.Height == bank.Height &&
             entry.Bank.MipCount == bank.MipCount && entry.Bank.Srgb == bank.Srgb &&
-            entry.Bank.Layers.AsSpan().SequenceEqual(bank.Layers)) : -1;
+            SamePixels(entry.Bank.Layers, bank.Layers)) : -1;
         if (hit >= 0)
         {
             var entry = resident[hit];
@@ -252,6 +263,14 @@ public sealed class GlomeComputeRenderer : IDisposable
             resident.RemoveAt(0);
         }
         return texture;
+    }
+
+    private static bool SamePixels(byte[][] a, byte[][] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+            if (a[i] != b[i] && !a[i].AsSpan().SequenceEqual(b[i])) return false;
+        return true;
     }
 
     private Rid CreateBank(int i, TextureBank bank)

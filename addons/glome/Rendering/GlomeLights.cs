@@ -38,12 +38,5 @@ public readonly record struct GlomeLight(LightGroup Group, LightRecord Record)
     }
 
     public static byte[] Pack(IEnumerable<GlomeLight> lights)
-    {
-        var groups = lights.ToLookup(l => l.Group);
-        int Count(LightGroup group) => groups[group].Count();
-        var counts = new Vector4I(Count(LightGroup.Directional), Count(LightGroup.ShadowedDirectional),
-            Count(LightGroup.Omni), Count(LightGroup.ShadowedOmni));
-        var records = Enum.GetValues<LightGroup>().SelectMany(g => groups[g]).Select(l => l.Record).ToArray();
-        return GlomeBuffers.PackLights(counts, records);
-    }
+        => new GlomeLightTable<int>(lights.Select((light, i) => (i, light))).Pack();
 }

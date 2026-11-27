@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Glome.Core;
@@ -25,7 +26,11 @@ public sealed record GlomeBakeOptions(
     Action<S3Anchor3D, S3Frame, Transform3D>? OnAnchor = null,
     Action<int, CollisionShape3D, S3Frame, Transform3D>? OnProxy = null,
     bool IncludeOwners = false,
-    Predicate<D4>? GroundMask = null);
+    Predicate<D4>? GroundMask = null,
+    bool CaptureAuthoringSources = false)
+{
+    public GlomeBakeTimings? Timings { get; init; }
+}
 
 public static class GlomeBaker
 {
@@ -36,6 +41,16 @@ public static class GlomeBaker
         S3Frame Frame, Transform3D Pose, Vector3 UvScale, Vector3 UvOffset, SurfaceTag Tag, bool Strip, int OwnerIndex);
 
     private sealed record BakeResult(BakedGeometry Geometry, S3CollisionWorld Collision, int[]? OwnerIndices);
+
+    private sealed class Sources(GlomeBakeOptions options)
+    {
+        public readonly List<Node3D>? Owners = options.IncludeOwners ? [] : null;
+        public readonly List<MeshInstance3D>? Meshes = options.CaptureAuthoringSources ? [] : null;
+        public readonly List<Light3D>? Lights = options.CaptureAuthoringSources ? [] : null;
+        public readonly List<(CollisionShape3D, CollisionShapeAdapter.Input)>? Proxies = options.CaptureAuthoringSources ? [] : null;
+        public readonly List<GlomeLightSource> LightSources = [];
+        public ulong GroundMaterialId;
+    }
 
     public static S3BakeSnapshot Bake(S3Space3D space, double? radiusOverride = null,
         BakeVisibility visibility = BakeVisibility.HonoredUpToRoot, Func<Material?, SurfaceTag>? resolveMaterial = null,
@@ -48,7 +63,7 @@ public static class GlomeBaker
         options ??= new();
         space.BeginBake();
         var (inputs, owners) = ExtractInputs(space, options, null).GetAwaiter().GetResult();
-        return Publish(space, inputs, BakeCore(inputs, options.GroundMask), owners);
+        return Publish(space, inputs, BakeCore(inputs, options.GroundMask, options.Timings), owners);
     }
 
     /// <summary>Call on the Godot main thread. Only captured values are processed on the worker.</summary>
@@ -64,7 +79,9 @@ public static class GlomeBaker
         long generation = space.BeginBake();
         var (inputs, owners) = await ExtractInputs(space, options, yieldIfNeeded);
         var mask = options.GroundMask;
-        var result = await Task.Run(() => BakeCore(inputs, mask), cancellationToken);
+        var timings = options.Timings;
+        var result = await Task.Run(() => BakeCore(inputs, mask, timings, cancellationToken), cancellationToken)
+            .WaitAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (!GodotObject.IsInstanceValid(space) || space.BakeGeneration != generation)
             throw new OperationCanceledException("Space was freed or its bake was superseded.");
@@ -72,7 +89,7 @@ public static class GlomeBaker
     }
 
     // Visibility governs meshes. Enabled collision shapes remain physical even on hidden nodes.
-    private static async ValueTask<(BakeInputs, Node3D[]?)> ExtractInputs(
+    private static async ValueTask<(BakeInputs, Sources)> ExtractInputs(
         S3Space3D space, GlomeBakeOptions options, Func<ValueTask>? yieldIfNeeded)
     {
         double radius = options.RadiusOverride ?? space.Radius;
@@ -80,16 +97,25 @@ public static class GlomeBaker
         var surfaces = new List<MeshSurface>();
         var lights = new List<GlomeLight>();
         var proxies = new List<CollisionShapeAdapter.Input>();
-        List<Node3D>? sources = options.IncludeOwners ? [] : null;
+        var sources = new Sources(options);
+        var start = Stopwatch.GetTimestamp();
+        double priorTexture = options.Timings?.Texture ?? 0;
 
         var native = options.ResolveMaterial == null ? new NativeMaterialTable() : null;
         var resolve = options.ResolveMaterial ?? native!.Resolve;
         await VisitChart(space, null, S3Frame.Identity, Transform3D.Identity, space.Visible);
         var env = space.Environment ?? new S3Environment();
+        if (sources.Meshes != null) sources.GroundMaterialId = env.GroundMaterial?.GetInstanceId() ?? 0;
         var ground = env.GroundMaterial != null && space.EquatorialGroundEnabled && env.EquatorialGroundEnabled
             ? resolve(env.GroundMaterial) : new SurfaceTag(0, 0);
         var environment = env.Capture(space.EquatorialGroundEnabled ? ground.Material : -1);
-        return (new(radius, surfaces.ToArray(), proxies.ToArray(), ground, environment, native?.Finish(), lights.ToArray(), options.IncludeOwners), sources?.ToArray());
+        if (options.Timings is { } timing)
+            timing.Extract += GlomeBakeTimings.Since(start) - (timing.Texture - priorTexture);
+        start = Stopwatch.GetTimestamp();
+        var materials = native?.Finish();
+        if (native != null && options.Timings is { } texture) texture.Texture += GlomeBakeTimings.Since(start);
+        return (new(radius, surfaces.ToArray(), proxies.ToArray(), ground, environment, materials,
+            lights.ToArray(), options.IncludeOwners || options.CaptureAuthoringSources), sources);
 
         async ValueTask VisitChart(Node root, S3Anchor3D? owner, S3Frame frame, Transform3D transform, bool visible)
         {
@@ -123,17 +149,23 @@ public static class GlomeBaker
                     if (child is MeshInstance3D { Mesh: not null, Visible: true } mesh &&
                         (childVisible || options.Visibility == BakeVisibility.SelfVisible))
                     {
-                        ExtractSurfaces(mesh, pose, frame, resolve, surfaces, sources?.Count ?? -1);
-                        sources?.Add((Node3D?)owner ?? mesh);
+                        ExtractSurfaces(mesh, pose, frame, resolve, surfaces, sources.Meshes?.Count ?? sources.Owners?.Count ?? -1);
+                        sources.Owners?.Add((Node3D?)owner ?? mesh);
+                        sources.Meshes?.Add(mesh);
                     }
                     if (child is Light3D { Visible: true } light && (childVisible || options.Visibility == BakeVisibility.SelfVisible) &&
                         GlomeLight.FromNode(light, frame, pose, radius) is { } record)
+                    {
                         lights.Add(record);
+                        sources.LightSources.Add(new(light.GetInstanceId(), space.GetPathTo(light).ToString()));
+                        sources.Lights?.Add(light);
+                    }
                     if (child is CollisionShape3D { Disabled: false } shape &&
                         CollisionShapeAdapter.Capture(frame, pose, shape.Shape) is { } proxy)
                     {
                         options.OnProxy?.Invoke(proxies.Count, shape, frame, pose);
                         proxies.Add(proxy);
+                        sources.Proxies?.Add((shape, proxy));
                     }
                     await Walk(child, pose, childVisible);
                 }
@@ -167,13 +199,15 @@ public static class GlomeBaker
         }
     }
 
-    private static BakeResult BakeCore(BakeInputs inputs, Predicate<D4>? groundMask = null)
+    private static BakeResult BakeCore(BakeInputs inputs, Predicate<D4>? groundMask, GlomeBakeTimings? timing, CancellationToken cancellation = default)
     {
         // Extraction has already copied the engine data. Each surface can now be
         // projected independently. Concatenate in authored order to preserve hit and owner IDs.
+        long start = Stopwatch.GetTimestamp();
         var surfaces = inputs.Surfaces;
         var batches = new GeodesicTriangle[surfaces.Length][];
-        Parallel.For(0, surfaces.Length, i => batches[i] = Project(surfaces[i], inputs.Radius));
+        Parallel.For(0, surfaces.Length, new ParallelOptions { CancellationToken = cancellation },
+            i => batches[i] = Project(surfaces[i], inputs.Radius));
         int count = 0;
         foreach (var batch in batches) count = checked(count + batch.Length);
         var faces = new GeodesicTriangle[count];
@@ -186,7 +220,11 @@ public static class GlomeBaker
             if (indices != null) Array.Fill(indices, surfaces[i].OwnerIndex, first, batch.Length);
             first += batch.Length;
         }
+        cancellation.ThrowIfCancellationRequested();
+        if (timing != null) timing.Project = GlomeBakeTimings.Since(start);
+        start = Stopwatch.GetTimestamp();
         var nodes = indices is null ? CapBvhBuilder.Build(faces) : CapBvhBuilder.Build(faces, indices);
+        if (timing != null) timing.Bvh = GlomeBakeTimings.Since(start);
         bool floor = inputs.Environment.ModeGroundMaterial.Y >= 0;
         var uv = inputs.Environment.GroundUvTransform;
         var ground = inputs.Ground;
@@ -197,10 +235,13 @@ public static class GlomeBaker
         return new(geometry, new(inputs.Radius, proxies, floor), indices);
     }
 
-    private static S3BakeSnapshot Publish(S3Space3D space, BakeInputs inputs, BakeResult result, Node3D[]? sources)
+    private static S3BakeSnapshot Publish(S3Space3D space, BakeInputs inputs, BakeResult result, Sources sources)
     {
-        var owners = result.OwnerIndices is { } indices ? Array.ConvertAll(indices, index => sources![index]) : null;
-        return space.Publish(result.Geometry, result.Collision, owners, inputs.Materials, inputs.Lights, inputs.Environment);
+        var owners = sources.Owners == null ? null : Array.ConvertAll(result.OwnerIndices!, i => sources.Owners[i]);
+        var authoring = sources.Meshes == null ? null : new GlomeAuthoringSources(sources.Meshes.ToArray(),
+            result.OwnerIndices!, sources.Lights!.ToArray()) { Proxies = sources.Proxies!.ToArray(), GroundMaterialId = sources.GroundMaterialId };
+        return space.Publish(result.Geometry, result.Collision, owners, inputs.Materials, inputs.Lights,
+            inputs.Environment, sources.LightSources.ToArray(), authoring);
     }
 
     private static GeodesicTriangle[] Project(MeshSurface surface, double radius)

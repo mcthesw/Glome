@@ -151,10 +151,12 @@ internal sealed partial class GlomeEditorSession : IDisposable
         Aim(transported, -transported.Pitch(_pitch).Back);
     }
     private double _time;
-    private bool _needsBake;
+    private bool _needsBake, _geometryDirty;
+    private IGlomeEditorViewProvider? _bakingProvider;
     private double _quietTime;
     private System.Threading.CancellationTokenSource? _bakeCancellation;
     private Task<GlomeEditorView>? _baking;
+    private GlomeBakeDispatcher? _dispatcher;
     private IGlomeEditorViewProvider? _activeProvider;
 
     public GlomeEditorSession(GlomeEditorPlugin plugin)
@@ -166,7 +168,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         panel.AddChild(views);
         views.AddChild(spaces);
         Listen(spaces, OptionButton.SignalName.ItemSelected, Callable.From<long>(index => SelectSpace(spaceNodes[(int)index])));
-        Listen(mode, OptionButton.SignalName.ItemSelected, Callable.From<long>(_ => RequestBake()));
+        Listen(mode, OptionButton.SignalName.ItemSelected, Callable.From<long>(_ => ViewChanged()));
         GlomeEditorViews.Changed += RefreshViews;
         views.AddChild(mode);
         _image = new TextureRect
@@ -193,7 +195,10 @@ internal sealed partial class GlomeEditorSession : IDisposable
         AddBookmarks(views);
         panel.AddChild(_status);
         SelectionChanged();
-        Listen(plugin.GetUndoRedo(), "version_changed", new Callable(plugin, nameof(plugin.PreviewRequestBake)));
+        var history = new Callable(plugin, nameof(plugin.PreviewHistoryChanged));
+        Listen(plugin.GetUndoRedo(), EditorUndoRedoManager.SignalName.VersionChanged, history);
+        Listen(plugin.GetUndoRedo(), EditorUndoRedoManager.SignalName.HistoryChanged, history);
+        plugin.AddUndoRedoInspectorHookCallback(new Callable(plugin, nameof(plugin.PreviewInspectorEdit)));
         Listen(RenderingServer.Singleton, "frame_post_draw", new Callable(plugin, nameof(plugin.PreviewFramePresented)));
         Listen(plugin, "scene_changed", new Callable(plugin, nameof(plugin.PreviewSceneSwitched)));
         SceneSwitched(plugin.GetTree().EditedSceneRoot);
@@ -292,18 +297,39 @@ internal sealed partial class GlomeEditorSession : IDisposable
         mode.Clear();
         foreach (var provider in providers) mode.AddItem(provider.DisplayName);
         if (providers.Length > 0) SelectView(id);
-        CancelDrag();
-        MarkDirty();
     }
 
     private void SelectView(string id)
     {
         int index = Array.FindIndex(providers, p => p.Id == id);
         mode.Selected = Math.Max(0, index);
-        MarkDirty();
+        ViewChanged();
+    }
+
+    private void ViewChanged()
+    {
+        CancelDrag();
+        if (Provider is GlomeEditorViews.Neutral neutral && _activeProvider is GlomeEditorViews.Neutral &&
+            _renderer != null && viewData != null)
+        {
+            if (_bakingProvider is not GlomeEditorViews.Neutral) _bakeCancellation?.Cancel();
+            _needsBake = (_geometryDirty || _space!.LastBake != _bake) &&
+                (_baking == null || _bakeCancellation!.IsCancellationRequested);
+            neutral.ApplyEnvironment(_space!, viewData, _renderer);
+            _activeProvider = neutral;
+            dirty = true;
+            return;
+        }
+        QueueBake();
     }
 
     private void MarkDirty()
+    {
+        _geometryDirty = true;
+        QueueBake();
+    }
+
+    private void QueueBake()
     {
         _needsBake = _space != null;
         _quietTime = 0;
@@ -320,10 +346,14 @@ internal sealed partial class GlomeEditorSession : IDisposable
 
     private void UpdateBake(double delta)
     {
+        _dispatcher?.Pump();
         if (_needsBake) _quietTime += delta;
         if (_baking is { IsCompleted: true } finished)
         {
             _baking = null;
+            _bakingProvider = null;
+            _dispatcher!.Dispose();
+            _dispatcher = null;
             bool stale = _bakeCancellation!.IsCancellationRequested;
             _bakeCancellation.Dispose();
             _bakeCancellation = null;
@@ -338,20 +368,31 @@ internal sealed partial class GlomeEditorSession : IDisposable
         _needsBake = false;
         if (RenderingServer.GetRenderingDevice() is null) { Message("Vulkan rendering is required."); return; }
         _bakeCancellation = new();
-        _baking = Provider.BakeAsync(_space!, _bakeCancellation.Token);
+        _bakingProvider = Provider;
+        _dispatcher = new();
+        _baking = _dispatcher.Start(_bakingProvider, _space!, _bakeCancellation.Token);
     }
 
     private void PresentBake(GlomeEditorView data)
     {
         dirty = true;
+        _geometryDirty = false;
         bool initial = _bake == null;
-        _activeProvider = Provider;
         CacheAnchors(data.Snapshot.Geometry.Radius);
-        _image.Texture = null;
-        _renderer?.Dispose();
-        outputSize = Provider.Resolution(TargetSize());
-        _renderer = new(data.Buffers, outputSize, data.Program, capture: true);
-        _image.Texture = _renderer.Output;
+        // A custom program may close over the prior bake's Set 1 buffers.
+        if (_renderer != null && (data.Program is { } program
+            ? _renderer.CanReuseStaticProgram(program) : viewData?.Program == null))
+            _renderer.Rebuild(data.Buffers);
+        else
+        {
+            _image.Texture = null;
+            _renderer?.Dispose();
+            outputSize = Provider.Resolution(TargetSize());
+            _renderer = new(data.Buffers, outputSize, data.Program, capture: true);
+            _image.Texture = _renderer.Output;
+        }
+        _activeProvider = Provider;
+        if (Provider is GlomeEditorViews.Neutral neutral) neutral.ApplyEnvironment(_space!, data, _renderer);
         _image.TextureFilter = Provider.DisplayFilter;
         viewData = data;
         _bake = data.Snapshot;
@@ -535,12 +576,19 @@ internal sealed partial class GlomeEditorSession : IDisposable
 
     private void ReleaseScene()
     {
+        CancelDrag();
+        _actionChanges.Clear();
         _bakeCancellation?.Cancel();
+        _dispatcher?.Pump();
+        _dispatcher?.Dispose();
+        _dispatcher = null;
         _bakeCancellation?.Dispose();
         _bakeCancellation = null;
         if (_baking != null)
             _ = _baking.ContinueWith(static t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
         _baking = null;
+        _bakingProvider = null;
+        _geometryDirty = false;
         _activeProvider = null;
         _image.Texture = null;
         _renderer?.Dispose();
@@ -565,6 +613,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         disposed = true;
         if (GodotObject.IsInstanceValid(_space)) _space!.BakeInvalidated -= MarkDirty;
         GlomeEditorViews.Changed -= RefreshViews;
+        plugin.RemoveUndoRedoInspectorHookCallback(new Callable(plugin, nameof(plugin.PreviewInspectorEdit)));
         StopFly();
         foreach (var (source, signal, target) in _signals)
             if (GodotObject.IsInstanceValid(source) && source.IsConnected(signal, target)) source.Disconnect(signal, target);

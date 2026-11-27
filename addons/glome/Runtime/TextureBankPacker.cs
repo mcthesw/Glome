@@ -65,7 +65,8 @@ internal sealed class TextureBankPacker
                 sources[i].Reference = ((uint)banks.Count << 24) | (uint)i;
                 layers[i] = BuildLayer(sources[i].Texture, size);
             }
-            banks.Add(new(size.X, size.Y, 1 + System.Numerics.BitOperations.Log2((uint)Math.Max(size.X, size.Y)), layers, Srgb: true));
+            banks.Add(new(size.X, size.Y, 1 + System.Numerics.BitOperations.Log2((uint)Math.Max(size.X, size.Y)), layers, Srgb: true)
+                { Reusable = true });
         }
     }
 

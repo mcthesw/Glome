@@ -68,7 +68,10 @@ public partial class GlomeEditorPlugin : EditorPlugin, ISerializationListener
     internal void PreviewStopFly() => session?.StopFly();
     internal void PreviewFramePresented() => session?.FramePresented();
     internal void PreviewSceneSwitched(Node? scene) => session?.SceneSwitched(scene);
-    internal void PreviewRequestBake() => session?.RequestBake();
+    internal void PreviewHistoryChanged() => session?.HistoryChanged();
+    internal void PreviewPropertyChanged(ulong target, string property) => session?.PropertyChanged(target, property);
+    internal void PreviewInspectorEdit(EditorUndoRedoManager undo, GodotObject target, string property, Variant value) =>
+        session?.TrackProperty(undo, target, property);
     public override void _Process(double delta)
     {
         session?.Process(delta);

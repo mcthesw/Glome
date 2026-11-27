@@ -8,14 +8,23 @@ public enum S3ShadingMode { StandardLit, Unlit, ClayClean }
 [Tool, GlobalClass]
 public partial class S3Environment : Resource
 {
-    [Export] public Color BackgroundColor { get; set; } = new(0.28f, 0.32f, 0.38f);
+    internal static readonly Color DefaultBackground = new(0.28f, 0.32f, 0.38f);
+    internal const float DefaultAmbientEnergy = .2f;
+    [Export] public Color BackgroundColor { get; set; } = DefaultBackground;
     [Export] public Color AmbientColor { get; set; } = Colors.White;
-    [Export] public float AmbientEnergy { get; set; } = 0.2f;
-    [Export] public Color FogColor { get; set; } = new(0.28f, 0.32f, 0.38f);
+    [Export] public float AmbientEnergy { get; set; } = DefaultAmbientEnergy;
+    [Export] public Color FogColor { get; set; } = DefaultBackground;
     [Export] public float FogDensity { get; set; }
     [Export] public S3ShadingMode ShadingMode { get; set; }
     [Export] public bool EquatorialGroundEnabled { get; set; } = true;
     [Export] public StandardMaterial3D? GroundMaterial { get; set; }
+
+    internal static EnvironmentBlock CaptureOrDefault(S3Environment? environment, int groundMaterial)
+    {
+        if (environment != null) return environment.Capture(groundMaterial);
+        using var defaults = new S3Environment();
+        return defaults.Capture(groundMaterial);
+    }
 
     public EnvironmentBlock Capture(int groundMaterial)
     {

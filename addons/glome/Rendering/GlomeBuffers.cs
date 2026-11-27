@@ -73,6 +73,8 @@ public sealed record TextureBank(int Width, int Height, int MipCount, byte[][] L
 public sealed record GlomeBuffers(byte[] Triangles, byte[] Nodes, byte[] Materials, byte[] Lights,
                                   EnvironmentBlock Environment, TextureBank[] Banks)
 {
+    internal GlomeBakeTimings? Timings { get; init; }
+
     static GlomeBuffers()
     {
         Check<CameraPush>(96, 0,16,32,48,64,80);
@@ -109,10 +111,12 @@ public sealed record GlomeBuffers(byte[] Triangles, byte[] Nodes, byte[] Materia
         return bytes;
     }
 
-    public static GlomeBuffers Pack(S3BakeSnapshot scene)
+    public static GlomeBuffers Pack(S3BakeSnapshot scene) => Pack(scene, GlomeLight.Pack(scene.Lights));
+
+    internal static GlomeBuffers Pack(S3BakeSnapshot scene, byte[] lights)
     {
         var materials = scene.Materials ?? throw new ArgumentException("A custom material resolver must supply its own table.");
-        return Pack(scene.Geometry, materials.Records, GlomeLight.Pack(scene.Lights), scene.Environment, materials.Banks);
+        return Pack(scene.Geometry, materials.Records, lights, scene.Environment, materials.Banks);
     }
 
     public static GlomeBuffers Pack(BakedGeometry geometry, MaterialRecord[] materials, byte[] lights,

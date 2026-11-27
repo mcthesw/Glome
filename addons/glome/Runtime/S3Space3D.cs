@@ -8,7 +8,11 @@ namespace Glome;
 
 public sealed record S3BakeSnapshot(long Revision, BakedGeometry Geometry,
                                     S3CollisionWorld Collision, Node3D[]? TriangleOwners, GlomeMaterials? Materials,
-                                    GlomeLight[] Lights, EnvironmentBlock Environment);
+                                    GlomeLight[] Lights, EnvironmentBlock Environment)
+{
+    public GlomeAuthoringSources? AuthoringSources { get; init; }
+    public GlomeLightSource[] LightSources { get; init; } = [];
+}
 
 [Tool, GlobalClass]
 public partial class S3Space3D : Node3D
@@ -100,6 +104,8 @@ public partial class S3Space3D : Node3D
     protected virtual void OnRadiusChanged() { }
 
     internal S3BakeSnapshot Publish(BakedGeometry geometry, S3CollisionWorld collision, Node3D[]? owners, GlomeMaterials? materials,
-                                    GlomeLight[] lights, EnvironmentBlock environment) =>
-        LastBake = new(BakeRevision + 1, geometry, collision, owners, materials, lights, environment);
+                                    GlomeLight[] lights, EnvironmentBlock environment, GlomeLightSource[] lightSources,
+                                    GlomeAuthoringSources? sources) =>
+        LastBake = new(BakeRevision + 1, geometry, collision, owners, materials, lights, environment)
+            { LightSources = lightSources, AuthoringSources = sources };
 }
