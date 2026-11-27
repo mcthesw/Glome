@@ -100,15 +100,29 @@ public sealed class S3CollisionWorld
                     onPosition?.Invoke(frame.P);
                     break;
                 }
-                double advance = Math.Max(0, first - 0.0005 / Radius);
+                double advance = Math.Max(0, first - 1e-10 / Radius);
                 frame = frame.Travel(d, advance);
                 onPosition?.Invoke(frame.P);
+                D4 normalAtContact = wall;
                 wall = wall.Reject(frame.P);
                 if (standingHeight > 0) wall = wall.Reject(HasElevation ? D4.Up.Reject(frame.P).Unit() : D4.Up);
                 if (wall.Length < 1e-9) break;
                 D4 slide = ray.Tangent(advance).Reject(wall.Unit());
                 remaining = (remaining - advance) * slide.Length;
-                if (remaining > 1e-9) d = slide.Unit();
+                if (remaining > 1e-9)
+                {
+                    d = slide.Unit();
+                    // A tangent great circle bends into a positive-radius offset.
+                    // Aim the slide chord at the same supporting small circle;
+                    // its interior stays on the clear side. Sweep it normally so
+                    // other features can still interrupt the slide.
+                    double latitude = bodyRadius / Radius;
+                    D4 support = ray.At(first)*Math.Sin(latitude) + normalAtContact*Math.Cos(latitude);
+                    D4 side = wall.Unit();
+                    double outward = support.Dot(frame.P)*Math.Tan(remaining/2) / support.Dot(side);
+                    if (outward > 0 && outward < 1)
+                        d = d*Math.Sqrt(1-outward*outward) + side*outward;
+                }
             }
         }
         return frame.Orthonormalized();

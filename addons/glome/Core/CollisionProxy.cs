@@ -6,36 +6,54 @@ namespace Glome.Core;
 public enum ProxyShape { Box, Cylinder }
 
 // XYZ are the linear coefficients of each inverse affine row, W is its translation.
-// Forward basis lengths and origin distance conservatively bound the chart-space shape.
+// The final two fields retain the affine authoring metadata.
 public readonly record struct ProxyTransform(D4 InverseX, D4 InverseY, D4 InverseZ,
                                              D4 AxisLengths, double OriginDistance);
 
 public sealed class CollisionProxy
 {
-    private readonly D4 _pole, _x, _y, _z, _half, _inverseScale;
+    private readonly D4 _pole, _x, _y, _z, _half;
     private readonly bool _round;
-    private readonly double _bound, _paddingScale, _heightScale, _radius;
+    private readonly double _verticalScale, _radius;
+
+    private readonly ProxyBoundary _solid;
+    private sealed record Standing(double Height, ProxyBoundary Boundary);
+    private volatile Standing? _standing;
 
     internal bool WalkableTop { get; }
 
     public CollisionProxy(S3Frame chart, double radius, ProxyTransform transform,
                           D4 halfExtents, ProxyShape shape, bool walkableTop = false)
+        : this(chart, radius, transform, halfExtents, shape, walkableTop, D4.Pole) { }
+
+    // Homogeneous denominator in chart coordinates; changing gnomonic chart
+    // changes all four inverse rows, even for a locally affine authored box.
+    internal CollisionProxy(S3Frame chart, double radius, ProxyTransform transform,
+        D4 halfExtents, ProxyShape shape, bool walkableTop, D4 denominator)
     {
         _radius = radius;
         WalkableTop = walkableTop;
-        _pole = chart.P;
         D4 Axis(D4 row) => chart.Local(row.X, row.Y, row.Z) * radius + chart.P * row.W;
+        _pole = Axis(denominator);
         _x = Axis(transform.InverseX);
         _y = Axis(transform.InverseY);
         _z = Axis(transform.InverseZ);
-        static double RowLength(D4 row) => (row with { W = 0 }).Length;
-        _inverseScale = new(RowLength(transform.InverseX), RowLength(transform.InverseY),
-                            RowLength(transform.InverseZ), 0);
+        _verticalScale = _y.Reject(_pole).Length / radius;
         _half = halfExtents;
         _round = shape == ProxyShape.Cylinder;
-        _bound = transform.OriginDistance + transform.AxisLengths.Dot(_half);
-        _paddingScale = transform.AxisLengths.Dot(_inverseScale);
-        _heightScale = transform.AxisLengths.Y * _inverseScale.Y;
+        _solid = Boundary(0);
+    }
+
+    private ProxyBoundary Boundary(double height) => new(_pole, _x, _y, _z, _half, height*_verticalScale, _round);
+
+    private ProxyBoundary ForHeight(double height)
+    {
+        if (height == 0) return _solid;
+        var cached = _standing;
+        if (cached?.Height == height) return cached.Boundary;
+        var boundary = Boundary(height);
+        _standing = new(height,boundary);
+        return boundary;
     }
 
     // Intersect the vertical great circle q cos(h/R) + U sin(h/R) with the
@@ -50,6 +68,7 @@ public sealed class CollisionProxy
         if (!clip) return true;
         D4 strike = ground * Math.Cos(angle) + D4.Up * Math.Sin(angle);
         double w = _pole.Dot(strike);
+        if (_round) return w > 0 && double.Hypot(_x.Dot(strike)/_half.X, _z.Dot(strike)/_half.Z) <= w + 1e-12;
         return w > 0 && Math.Abs(_x.Dot(strike)) <= (_half.X + 1e-6) * w
             && Math.Abs(_z.Dot(strike)) <= (_half.Z + 1e-6) * w;
     }
@@ -58,117 +77,83 @@ public sealed class CollisionProxy
         TopHeight(feet.Reject(D4.Up).Unit(), out double top, clip: false) &&
         top <= _radius * Math.Asin(Math.Clamp(feet.Y, -1, 1)) + S3Elevation.StepUp;
 
-    // A landing or a new curvature can place a stationary body inside a proxy.
-    // Exit across a supporting great sphere, keeping a walking foot on the equator.
+    // Distance to any supporting hemisphere is a lower bound. Along a unit
+    // speed arc its signed distance can decrease by at most the arc length.
+    private static bool Near(ProxyBoundary boundary, D4 p, double angle)
+    {
+        double limit = Math.Sin(Math.Min(Math.PI / 2, angle)) + 2e-14;
+        foreach (D4 face in boundary.Faces)
+            if (face.Dot(p) > limit) return false;
+        return true;
+    }
+
     internal bool Separate(S3Frame frame, double bodyRadius, double height, out S3Frame clear)
     {
         clear = frame;
-        double w = _pole.Dot(frame.P);
-        if (w <= 0 || (WalkableTop && height > 0 && CanStepOn(frame.P))) return false;
-        D4 size = _half + _inverseScale * bodyRadius;
-        double x = _x.Dot(frame.P) / w, y = _y.Dot(frame.P) / w, z = _z.Dot(frame.P) / w;
-        double bottom = size.Y + height * _inverseScale.Y;
-        if (y < -bottom || y > size.Y || Math.Abs(x) > size.X || Math.Abs(z) > size.Z) return false;
+        double rho = bodyRadius/_radius;
+        var boundary = ForHeight(height);
+        if (!Near(boundary,frame.P,rho) || (height > 0 && WalkableTop && CanStepOn(frame.P))) return false;
+        var (distance, plane) = boundary.Distance(frame.P);
+        if (distance >= rho - 1e-12) return false;
         double best = double.PositiveInfinity;
         D4 direction = default;
-        void Face(D4 plane)
+        void ExitAcross(D4 n)
         {
-            if (height > 0) plane = plane.Reject(D4.Up);
-            D4 tangent = plane.Reject(frame.P);
-            if (tangent.Length < 1e-12) return;
-            double angle = Math.Atan2(-plane.Dot(frame.P), tangent.Length);
-            if (angle < best) { best = angle; direction = tangent.Unit(); }
+            D4 d = n.Reject(frame.P);
+            if (height > 0) d = d.Reject(D4.Up.Reject(frame.P).Unit());
+            if (d.Length < 1e-12) return;
+            d = d.Unit();
+            double a = n.Dot(frame.P), b = n.Dot(d), magnitude = double.Hypot(a,b);
+            double offset = Math.Sin(rho);
+            if (b <= 0 || magnitude < offset) return;
+            double t = Math.Asin(offset/magnitude) - Math.Atan2(a,b);
+            if (t >= -1e-12 && t < best) { best = t; direction = d; }
         }
-        if (_round)
-        {
-            double radial = double.Hypot(x / size.X, z / size.Z);
-            if (radial > 1) return false;
-            Face(radial < 1e-12 ? _x / size.X - _pole : _x * (x / (size.X * size.X * radial)) + _z * (z / (size.Z * size.Z * radial)) - _pole);
-        }
-        else
-        {
-            Face(_x - _pole * size.X); Face(-_x - _pole * size.X);
-            Face(_z - _pole * size.Z); Face(-_z - _pole * size.Z);
-        }
-        Face(_y - _pole * size.Y); Face(-_y - _pole * bottom);
+        ExitAcross(plane);
+        // A walker's nearest feature can be directly overhead. Choose a
+        // reachable horizontal exit if vertical depenetration is constrained.
+        if (height > 0)
+            foreach (D4 n in boundary.Faces) ExitAcross(n);
         if (direction == default) return false;
-        clear = frame.Travel(direction, Math.Max(0, best) + 0.0005 / _radius).Orthonormalized();
+        clear = frame.Travel(direction, Math.Max(0,best) + 1e-8/_radius).Orthonormalized();
         return true;
     }
 
     internal bool Sweep(ArcRay ray, D4 end, double arc, double bodyRadius, double height, out double time, out D4 normal)
     {
-        time = 0; normal = default;
-        double w0 = _pole.Dot(ray.P), w1 = _pole.Dot(end);
-        // The normalized positive chord traces the great circle. Its length is at least
-        // cos(arc/2), so even the nearest possible proxy point has this lower bound on w.
-        double metres = _bound + bodyRadius * _paddingScale + height * _heightScale;
-        double minW = Math.Cos(arc * 0.5) * _radius / double.Hypot(_radius, metres);
-        if (Math.Max(w0, w1) < minW - 1e-12) return false;
-        if (WalkableTop && height > 0 && CanStepOn(end)) return false;
-        double clip = minW * 0.5;
-        double s0 = w0 < clip ? (clip - w0) / (w1 - w0) : 0;
-        double s1 = w1 < clip ? (clip - w0) / (w1 - w0) : 1;
-        D4 chord = end - ray.P;
-        D4 p = ray.P + chord * s0, q = ray.P + chord * s1;
-        double wa = w0 + (w1 - w0) * s0, wb = w0 + (w1 - w0) * s1;
-
-        D4 Local(D4 p, double w) => new(_x.Dot(p) / w, _y.Dot(p) / w, _z.Dot(p) / w, 0);
-        D4 a = Local(p, wa), delta = Local(q, wb) - a;
-        D4 pad = _inverseScale * bodyRadius, size = _half + pad;
-        double enter = double.NegativeInfinity, leave = 1;
-        D4 face = default;
-        void Slab(int axis, D4 positive, double low, double high)
+        time = 0;
+        normal = default;
+        double rho = bodyRadius/_radius, offset = Math.Sin(rho);
+        var boundary = ForHeight(height);
+        if (!Near(boundary,ray.P,rho+arc) || (height > 0 && WalkableTop && CanStepOn(end))) return false;
+        // At every exterior point the nearest feature gives an exact supporting
+        // plane. No contact can precede the first entry into its offset slab.
+        while (time <= arc)
         {
-            double v = delta[axis], origin = a[axis];
-            if (Math.Abs(v) < 1e-12)
+            D4 p = ray.At(time), tangent = ray.Tangent(time);
+            var (distance, n) = boundary.Distance(p);
+            double a = n.Dot(p), b = n.Dot(tangent);
+            // A projectile asks for its next entry. A standing footprint can
+            // start slightly embedded after its elevation changes; block inward motion.
+            if (height == 0 && time == 0 && distance < rho - 2e-12) return false;
+            if (distance <= rho + 2e-12 && (time > 0 || b < -1e-12))
             {
-                if (origin < low || origin > high) leave = double.NegativeInfinity;
-                return;
+                normal = n.Reject(p).Unit();
+                return true;
             }
-            double t0 = (low - origin) / v, t1 = (high - origin) / v;
-            if (v < 0) (t0, t1) = (t1, t0);
-            if (t0 > enter) { enter = t0; face = v > 0 ? -positive : positive; }
-            leave = Math.Min(leave, t1);
-        }
-        Slab(1, D4.Up, -size.Y - height * _inverseScale.Y, size.Y);
-        if (_round)
-        {
-            // The projected arc is a line. Clip it analytically against the elliptical wall.
-            double dx = delta.X / size.X, dz = delta.Z / size.Z, ax = a.X / size.X, az = a.Z / size.Z;
-            double aa = dx * dx + dz * dz, bb = ax * dx + az * dz, cc = ax * ax + az * az - 1;
-            if (aa < 1e-20)
+            double magnitude = double.Hypot(a,b);
+            if (magnitude <= offset) return false;
+            // Descending root of a cos(t) + b sin(t) = sin(rho).
+            double delta = Math.Atan2(b,a) + Math.Acos(Math.Clamp(offset/magnitude,-1,1));
+            if (delta <= 0) delta += Math.Tau;
+            double next = time + delta;
+            if (next == time)
             {
-                if (cc > 0) return false;
+                normal = n.Reject(p).Unit();
+                return true;
             }
-            else
-            {
-                double disc = bb * bb - aa * cc;
-                if (disc <= 0) return false;
-                double root = Math.Sqrt(disc);
-                // Stable quadratic roots also work for rays entering from the chart horizon.
-                double numerator = -bb - Math.CopySign(root, bb);
-                double near = numerator / aa, far = cc / numerator;
-                if (near > far) (near, far) = (far, near);
-                if (near > enter)
-                {
-                    enter = near;
-                    face = new((ax + near * dx) / size.X, 0, (az + near * dz) / size.Z, 0);
-                }
-                leave = Math.Min(leave, far);
-            }
+            time = next;
         }
-        else
-        {
-            Slab(0, D4.Right, -size.X, size.X);
-            Slab(2, D4.Back, -size.Z, size.Z);
-        }
-        if (enter > leave || enter < -1e-9 || enter > 1) return false;
-        double s = Math.Max(enter, 0);
-        double fraction = s0 + (s1 - s0) * s * wa / ((1 - s) * wb + s * wa);
-        time = Math.Atan2(fraction * Math.Sin(arc), 1 - fraction + fraction * Math.Cos(arc));
-        D4 point = a + delta * s;
-        normal = (_x * face.X + _y * face.Y + _z * face.Z - _pole * point.Dot(face)).Unit();
-        return true;
+        return false;
     }
 }

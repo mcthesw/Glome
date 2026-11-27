@@ -10,6 +10,7 @@ internal sealed class S3Elevation
     internal const double StepUp = 0.45;
     internal double Height { get; private set; }
     private double _fallSpeed;
+    internal bool Grounded => _fallSpeed == 0;
     private CollisionProxy? _standingOn;
 
     internal void Place(S3CollisionWorld world, D4 ground, double ceiling)
@@ -44,7 +45,7 @@ internal sealed class S3Elevation
                 Height = support;
             else
             {
-                const double gravity = 9.81;
+                double gravity = S3MotorCore.Gravity * Math.Cos(Height / world.Radius);
                 Height = Math.Max(support, Height - (_fallSpeed + 0.5 * gravity * dt) * dt);
                 _fallSpeed += gravity * dt;
             }

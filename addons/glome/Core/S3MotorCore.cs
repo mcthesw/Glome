@@ -7,6 +7,7 @@ public readonly record struct BodyProfile(double Radius, double Height, double E
 
 public sealed class S3MotorCore
 {
+    public const double Gravity = 9.81;
     private BodyProfile _profile;
     private S3CollisionWorld _collision;
     private S3Frame _body, _flight;
@@ -14,6 +15,7 @@ public sealed class S3MotorCore
     private S3Elevation? _elevation;
 
     public bool Flying { get; private set; }
+    public bool Grounded => !Flying && (_elevation?.Grounded ?? true);
     public S3Frame Camera => Flying ? _flight : new WalkPose(_body, _pitch, _elevation?.Height ?? 0).Eye(_collision.Radius, _profile.EyeHeight);
 
     public S3MotorCore(double radius, WalkPose arrival, BodyProfile profile, S3CollisionWorld? collision = null)
@@ -97,7 +99,8 @@ public sealed class S3MotorCore
     {
         if (Flying)
         {
-            _flight = _collision.ClearPlacement(_flight, _profile.Radius, 0);
+            if (!_collision.EquatorialGroundEnabled)
+                _flight = _collision.ClearPlacement(_flight, _profile.Radius, 0);
             TrackFlightPosition(_flight.P);
             AlignFlightHeading();
             return;
@@ -135,7 +138,16 @@ public sealed class S3MotorCore
         if (movement.Length < 1e-12) return;
         if (Flying)
         {
-            _flight = _collision.Move(frame, movement.Unit(), metres, _profile.Radius, 0, TrackFlightPosition);
+            if (_collision.EquatorialGroundEnabled)
+            {
+                // Dev flight moves cleanly along great circles without colliding/tilting on curved walls.
+                _flight = _flight.Travel(movement.Unit(), metres / _collision.Radius);
+                TrackFlightPosition(_flight.P);
+            }
+            else
+            {
+                _flight = _collision.Move(frame, movement.Unit(), metres, _profile.Radius, 0, TrackFlightPosition);
+            }
             AlignFlightHeading();
         }
         else _body = _collision.Move(frame, movement.Unit(), metres, _profile.Radius, _profile.Height);

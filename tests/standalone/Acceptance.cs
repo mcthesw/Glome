@@ -148,7 +148,8 @@ public partial class Acceptance : Node
         double z = ChartZ();
         var model = space.GetNode<S3Anchor3D>("Orrery");
         var shape = (CylinderShape3D)space.GetNode<CollisionShape3D>("Orrery/PlinthBody/Collision").Shape;
-        Check(Math.Abs(z - (model.Position.Z + shape.Radius + walker.BodyRadius)) < 0.004, "walk to authored cylinder");
+        double expectedCylinderZ = space.Radius * Math.Tan(Math.Atan((model.Position.Z + shape.Radius) / space.Radius) + walker.BodyRadius / space.Radius);
+        Check(Math.Abs(z - expectedCylinderZ) < 0.004, "walk to authored cylinder");
         walker.Move(Vector3.Forward, 0.5);
         Check(Math.Abs(z - ChartZ()) < 0.001, "no penetration on sustained input");
         double arc = foot.AngleTo(eye.EyeFrame(space.Radius).P.Reject(D4.Up).Unit()) * space.Radius;
@@ -212,7 +213,7 @@ public partial class Acceptance : Node
         var walker = space.GetNode<S3CharacterController>("Walker");
         walker.Move(Vector3.Forward, 2);
         double travelled = D4.Pole.AngleTo(camera.EyeFrame(space.Radius).P.Reject(D4.Up).Unit()) * space.Radius;
-        double expected = 4 - space.Radius * Math.Atan((0.6 + walker.BodyRadius)/space.Radius);
+        double expected = 4 - space.Radius * Math.Atan(0.6 / space.Radius) - walker.BodyRadius;
         Check(Math.Abs(travelled - expected) < 0.002, "box contact at authored arc placement");
         await Frames(3);
         GD.Print($"Authored agreement: max delta {error:E2}, box contact {travelled:F4} m (expected {expected:F4} m).");

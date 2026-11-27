@@ -12,7 +12,7 @@ public sealed class BakedGeometry(double radius, GeodesicTriangle[] triangles, C
                                   Predicate<D4>? groundMask = null)
 {
     private readonly Func<D4, D2, bool>? _coversGround = GroundCoverage(groundMask, cutoutGround, covers);
-    private readonly double _traceLimit = equatorialGroundEnabled && groundMask is null ? Math.PI : Math.Tau;
+    private readonly double _traceLimit = equatorialGroundEnabled && groundMask is null && cutoutGround < 0 ? Math.PI : Math.Tau;
 
     private static Func<D4, D2, bool>? GroundCoverage(Predicate<D4>? mask, int material, Func<int, D2, bool>? coverage)
     {

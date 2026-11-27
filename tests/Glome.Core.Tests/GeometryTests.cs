@@ -100,4 +100,14 @@ public sealed class GeometryTests
         Assert.AreEqual(HitKind.Miss, new BakedGeometry(Radius, [], []).Trace(ray, includeEquator: false).Kind);
         Assert.AreEqual(HitKind.Miss, new BakedGeometry(Radius, [], [], false).Trace(ray).Kind);
     }
+
+    [TestMethod]
+    public void GroundApertureContinuesFullTurnToClosedTwoPiEndpoint()
+    {
+        var scene = new BakedGeometry(Radius, [], [], equatorialGroundEnabled: true, groundMask: p => p.W > 0);
+        var ray = new ArcRay(D4.Pole, (D4.Back + D4.Up * 0.2).Unit());
+        var hit = scene.Trace(ray);
+        Assert.AreEqual(HitKind.Ground, hit.Kind);
+        Assert.AreEqual(Math.Tau, hit.T, 1e-12);
+    }
 }

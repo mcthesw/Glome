@@ -88,9 +88,23 @@ public static class CapBvhBuilder
             int split = Split(items, first, count, centers, owners);
             Partition(first, split - first);
             Partition(split, first + count - split);
-            nodes[slot] = new(cap, 0, 0, nodes.Count);
+            var left = nodes[slot + 1];
+            var right = nodes[left.Escape];
+            // For an isotropic great circle on S3 the probability of intersecting a
+            // positive cap is sin(alpha)^2. Keep one leaf when visiting both caps
+            // costs more than the triangle tests they are expected to eliminate.
+            if (left.Count != 0 && right.Count != 0 &&
+                (count - 2) * HitProbability(cap) <=
+                left.Count * HitProbability(left.Cap) + right.Count * HitProbability(right.Cap))
+            {
+                nodes.RemoveRange(slot + 1, 2);
+                nodes[slot] = new(cap, first, count, slot + 1);
+            }
+            else nodes[slot] = new(cap, 0, 0, nodes.Count);
         }
     }
+
+    private static double HitProbability(SphericalCap cap) => cap.CosAlpha > 0 ? 1 - cap.CosAlpha * cap.CosAlpha : 1;
 
     // A positive cap containing all corners contains their normalized positive combinations.
     // Compute it directly to avoid accumulating the slack of nested enclosing spheres.
