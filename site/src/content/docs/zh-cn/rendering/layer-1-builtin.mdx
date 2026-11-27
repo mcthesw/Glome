@@ -11,11 +11,13 @@ description: "配置 S3Environment、切换 StandardLit / Unlit / ClayClean 模�
 - **`Unlit`**：仅输出反照率、自发光与距离雾，跳过灯光计算，适合核对贴图、UV 与透明裁剪。
 - **`ClayClean`**：中性素模法线着色配低对比度 1 m 地面网格，绕过场景配色、灯光与雾，适合检查轮廓与比例。
 
+在编辑器中，使用 S³ 视口左上角的 **ViewMode** 比较这三种模式。切换时只更新现有渲染器的环境数据块，沿用当前机位、几何和烘焙版本。选择器仅覆盖预览的着色模式，F6 使用场景设定的 `S3Environment.ShadingMode`。
+
 ![ClayClean 模式下的开孔板、圆柱与球体，脚下为中性 1 m 网格。](/media/shading-clay-clean.webp)
 
 ## 环境设置
 
-在 `S3Space3D.Environment` 上配置 `BackgroundColor`、`AmbientColor`、`AmbientEnergy`、`FogColor`、`FogDensity`、`ShadingMode`、`EquatorialGroundEnabled` 与 `GroundMaterial`（完整默认值见 [S3Environment 参考](/zh-cn/reference/resources-and-runtime/#s3environment)）。运行时修改 `S3Environment` 属性后，需要重新烘焙（或在自定义宿主中调用 `GlomeComputeRenderer.UpdateEnvironment`）才会上传到 GPU。
+在 `S3Space3D.Environment` 上配置 `BackgroundColor`、`AmbientColor`、`AmbientEnergy`、`FogColor`、`FogDensity`、`ShadingMode`、`EquatorialGroundEnabled` 与 `GroundMaterial`（完整默认值见 [S3Environment 参考](/zh-cn/reference/resources-and-runtime/#s3environment-与-s3shadingmode)）。运行时修改 `S3Environment` 属性后，需要重新烘焙（或在自定义宿主中调用 `GlomeComputeRenderer.UpdateEnvironment`）才会上传到 GPU。
 
 ## 地面网格与无地面模式
 

@@ -43,18 +43,22 @@ GlomeBakeOptions(double? RadiusOverride = null,
     Func<Material?, SurfaceTag>? ResolveMaterial = null,
     Action<S3Anchor3D, S3Frame, Transform3D>? OnAnchor = null,
     Action<int, CollisionShape3D, S3Frame, Transform3D>? OnProxy = null,
-    bool IncludeOwners = false, Predicate<D4>? GroundMask = null)
+    bool IncludeOwners = false, Predicate<D4>? GroundMask = null,
+    bool CaptureAuthoringSources = false)
 ```
 
 - `Visibility`：`HonoredUpToRoot`（0）检查节点及至空间根的祖先可见性；`SelfVisible`（1）仅检查节点自身。已启用的碰撞体在两种策略下均参与烘焙。
 - `ResolveMaterial`：用自定义 `SurfaceTag(Material, Surface, Traversal)` 替代内置 `StandardMaterial3D` 打包（此时 `Materials` 为空）。
 - `IncludeOwners`：将重排后的 BVH 三角形映射回归属 `S3Anchor3D`（或网格），用于编辑器拾取。
 - `GroundMask`：CPU 地面求交的纯值谓词，输入单位交点 `x`，返回 `true` 保留地面（与 GPU `GLOME_GROUND_HOLE` 互补）。
+- 设置 `CaptureAuthoringSources` 后可读取 `S3BakeSnapshot.AuthoringSources`。`GlomeAuthoringSources` 包含 `Meshes`、`TriangleSources` 与 `Lights`。通过 `sources.Meshes[sources.TriangleSources[hit.Triangle]]` 可从 BVH 命中索引定位到实际网格，包括链接实例内部的网格。默认运行时烘焙的 `AuthoringSources` 为空。
+- 即使关闭编辑来源采集，仍可读取 `S3BakeSnapshot.LightSources`。第 `i` 项是 `Lights[i]` 对应的 `GlomeLightSource(ulong Id, string Path)`，记录节点实例 ID 和相对于空间根的路径。此数组按烘焙顺序排列，GPU 更新槽位则按灯光分组排列。
+- `GlomeBakeOptions.Timings` 可接受 `new GlomeBakeTimings(viewName)` 记录一次烘焙的耗时。内置编辑器视图将计时延续到缓冲区打包与上传，最后通过 `[GLOME-BAKE]` 输出各阶段的 CPU 耗时。
 
 ## GlomeBaker
 
 ```csharp title="GlomeBaker"
-public static S3BakeSnapshot Bake(S3Space3D space, GlomeBakeOptions? options = null)
+public static S3BakeSnapshot Bake(S3Space3D space, GlomeBakeOptions? options)
 public static Task<S3BakeSnapshot> BakeAsync(S3Space3D space,
     GlomeBakeOptions? options = null, CancellationToken cancellationToken = default)
 ```
@@ -66,6 +70,10 @@ public static Task<S3BakeSnapshot> BakeAsync(S3Space3D space,
 - `GlomeMaterials(MaterialRecord[] Records, TextureBank[] Banks)`：内置材质表（索引 `0` 为 `MaterialRecord.White`）及至多 4 组 sRGB `TextureBank`。
 - `GlomeBuffers.Pack(S3BakeSnapshot)` / `Pack(BakedGeometry, MaterialRecord[], byte[], EnvironmentBlock, TextureBank[])`：按 [Set 0 公共契约](/zh-cn/reference/compute-abi/)打包缓冲区。调用 `Draw` 时传入实际的 `Geometry.Nodes.Length`。
 - `GlomeLight.Directional(pole, radiance, shadows)` / `Omni(position, radiance, metres, radius, shadows)` / `Pack(lights)`：按 `LightGroup` 顺序（`Directional`、`ShadowedDirectional`、`Omni`、`ShadowedOmni`）分组并写入 16 字节计数头。
+
+### `GlomeLightTable<TKey>`
+
+以 `IEnumerable<(TKey Source, GlomeLight Light)>` 构造灯表，每盏灯使用唯一键。`Counts` 用 `Vector4I` 给出四组灯光的数量。`table[source]` 返回稳定分组后的记录槽位，从零开始。`Pack()` 将计数头和记录依次写入 Set 0 缓冲区。调用 `UpdateLight` 时使用此槽位，直到新的烘焙改变光源集合或分组。
 
 ## GlomeComputeRenderer
 
@@ -104,5 +112,8 @@ GlomeComputeRenderer(GlomeBuffers buffers, Vector2I size, S3RenderProgram? progr
 
 - **`IGlomeEditorViewProvider`**：实现 `Id`、`DisplayName`、`AppliesTo(space)`、`Bake(space)`（及可选 `Resolution`、`DisplayFilter`、`Animated`），通过 `GlomeEditorViews.Register(provider)` 注册，释放返回的句柄即可注销。
 - **`GlomeEditorView(Snapshot, Buffers, InitialView, Program = null, PrepareFrame = null)`**：`PrepareFrame(renderer, view, elapsed)` 可逐帧更新 Set 1 数据并返回管线索引。
+- `IGlomeEditorViewProvider.BakeAsync(space, cancellation)` 默认调用 `Bake`。提供器可覆盖它以支持可取消的异步准备。
+- `GlomeEditorView.NativeLightSlots` 将原生灯光的实例 ID 映射到该视图已打包缓冲区中的 `(LightGroup Group, int Slot)`。每次生成新快照时提供对应映射，即可支持增量编辑。
+- `TryApplyChange(space, view, change, renderer)` 处理检查器编辑及其撤销、重做。`GlomeViewChange(long Revision, GodotObject Target, string Property)` 标识这次变化。`TryLight(space, view, out slot, out record)` 解析属于当前快照且分组兼容的灯光更新。版本与快照一致时，`IsEnvironment(space, snapshot)` 可识别环境 uniform 编辑。替换整个环境资源时，有效地面开关和地面材质实例均须与快照一致。上传成功后返回 `true`，返回 `false`（默认值）会请求重烘。
 - **`GlomeEditorPlugin`**：公开 `BridgeDirectory`、`BridgeShaderReload`、`TryGetViewState`、`SetView`、`FocusNode`、`RequestRebake`、`CapturePreviewImage` 与 `ReloadPreviewShader`。
 - **`GlomeInspectorPlugin`**：在检查器提供半径大圆读数、可撤销的 **Scale Entire Scene** 与锚点径向压缩诊断。

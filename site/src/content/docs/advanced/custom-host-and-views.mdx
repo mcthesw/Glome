@@ -111,6 +111,7 @@ Implement `IGlomeEditorViewProvider` and register it from an `EditorPlugin` to a
 #nullable enable
 #if TOOLS
 using System;
+using System.Linq;
 using Glome;
 using Glome.Editor;
 using Godot;
@@ -134,14 +135,35 @@ public partial class SwatchPlugin : EditorPlugin
 
         public GlomeEditorView Bake(S3Space3D space)
         {
-            var snapshot = GlomeBaker.Bake(space, visibility: space.BakeVisibilityPolicy,
-                includeOwners: true);
+            var options = new GlomeBakeOptions(Visibility: space.BakeVisibilityPolicy,
+                IncludeOwners: true, CaptureAuthoringSources: true);
+            var snapshot = GlomeBaker.Bake(space, options);
+            var entries = snapshot.Lights.Select((light, i) => (snapshot.LightSources[i].Id, Light: light)).ToArray();
+            var table = new GlomeLightTable<ulong>(entries);
             var camera = space.GetNode<S3Camera3D>("Walker/Eye");
-            return new(snapshot, GlomeBuffers.Pack(snapshot), camera.EyeFrame(space.Radius));
+            var materials = snapshot.Materials!;
+            var buffers = GlomeBuffers.Pack(snapshot.Geometry, materials.Records, table.Pack(),
+                snapshot.Environment, materials.Banks);
+            return new(snapshot, buffers, camera.EyeFrame(space.Radius))
+            {
+                NativeLightSlots = entries.ToDictionary(e => e.Id, e => (e.Light.Group, table[e.Id]))
+            };
+        }
+
+        public bool TryApplyChange(S3Space3D space, GlomeEditorView view,
+            GlomeViewChange change, GlomeComputeRenderer renderer)
+        {
+            if (!change.TryLight(space, view, out int slot, out var record)) return false;
+            renderer.UpdateLight(slot, record);
+            return true;
         }
     }
 }
 #endif
 ```
+
+Select **Material Swatch** in the viewport’s **ViewMode** selector. The example captures source meshes for picking and the drag wireframe. The uploaded light table supplies the slot map, so editing an existing native light can update its GPU record directly. Unsupported edits fall back to `Bake`.
+
+A provider with its own environment settings can also handle `change.IsEnvironment(space, view.Snapshot)`. First verify that `change.Revision == view.Snapshot.Revision` and `space.LastBake == view.Snapshot`, then update the environment uniform using the snapshot’s ground-material index. The three built-in modes use this path to preserve their preview shading override.
 
 Pass `Program` and optional `PrepareFrame` on `GlomeEditorView` for custom compute shaders or per-frame Set 1 updates. Set `Animated = true` if time alone changes the image. [Runtime and editor API](/reference/resources-and-runtime/)

@@ -29,6 +29,12 @@ For `AlphaScissor`, CPU picking and GPU primary/shadow rays both test base-level
 
 Enable `ShadowEnabled` on either light to trace geodesic shadow rays in `StandardLit`.
 
+### Edit lights in the S³ preview
+
+In **StandardLit**, edit the energy or color of an existing visible light in the Inspector. The preview uploads just that light’s GPU record. This also works for an omni light’s range and for the transform of a light with no children. Undo and redo update the same record. Adding or removing a light, changing its shadow group or visibility, or moving a light with children requires a new bake.
+
+**Overlays → Lights & Cameras** shows light guides and camera frusta. Select a device and use its handle to drag an omni light’s range, aim a directional light, or change an `S3Camera3D`’s vertical FOV. Edits to ambient light, background color, and fog in `S3Environment` update the preview’s environment uniform. Ground geometry and ground material edits require a bake.
+
 ## Collision
 
 Place enabled `CollisionShape3D` nodes inside your charts.
@@ -39,6 +45,10 @@ Place enabled `CollisionShape3D` nodes inside your charts.
 | `CylinderShape3D` | Solid local-Y cylinder (e.g. the plinth in `Minimal.tscn`). |
 | `WalkableBoxShape3D` | **Walkable deck**: its local `+Y` face supports the player while its sides and underside stay solid, so elevated bridges can be walked over and passed under. |
 
+Enable **Overlays → Collision** and select a chart or collider to see its baked proxies. Cyan lines outline solid shapes. Green top faces identify the local `+Y` surfaces of walkable boxes.
+
 Shear a `WalkableBoxShape3D` to build a continuous ramp over stairs. `S3Elevation` steps up to **0.45 m**, follows the deck downhill, and applies **9.81 m/s²** gravity off ledges.
+
+During a full built-in editor bake, the Output panel prints `[GLOME-BAKE]` with the view name and six wall times in milliseconds. **Extract** covers scene data extraction, **Texture** captures and packs texture data, **Project** projects mesh vertices, **BVH** builds the search tree, **Pack** prepares GPU buffers, and **Upload** measures render-thread resource submission.
 
 **Collection & visibility rules.** `S3Space3D.BakeVisibilityPolicy` (`HonoredUpToRoot` or `SelfVisible`) filters meshes and lights only. Every enabled supported `CollisionShape3D` in the space — including shapes under hidden nodes or `Area3D` triggers — is currently baked as solid. Set `CollisionShape3D.Disabled = true` and rebake to exclude a collider.

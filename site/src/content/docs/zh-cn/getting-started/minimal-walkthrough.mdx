@@ -23,7 +23,7 @@ description: "对照画面与场景树理解 Minimal.tscn，并动手调整一�
 七座门架都使用 `ChartPlacement = SphericalAngles`：`PolarDegrees` 决定它离起点的地面角距离，`BearingDegrees` 决定出发方向（`0°` 朝 `+Z`，`90°` 朝 `+X`）。
 
 1. 按 **F8** 停止正在运行的场景，切到 **S³** 编辑器页签，选中 `Meridian1`（`PolarDegrees = 32°`、`BearingDegrees = 153°`）。
-2. 保持 `PolarDegrees` 为 `32°`，将 `BearingDegrees` 改为 `175°`，然后点击 **Rebake**。
+2. 保持 `PolarDegrees` 为 `32°`，将 `BearingDegrees` 改为 `175°`，等待预览自动更新。如需手动重烘，可选择 **View → Rebake Preview**。
 3. 门架绕起点水平移到新方向，沿地面的弧长保持约 $14 \times 32\pi/180 \approx 7.82\text{ m}$ 不变。
 
 七座门架的 `PolarDegrees` 从 `32°`（`Meridian1`，7.82 m）一直延伸到 **`170°`**（`Meridian5`，41.54 m，距起点对跖点仅差 10°）。[为什么远处的地标反而显得更大](/zh-cn/authoring/s3-intuition/)

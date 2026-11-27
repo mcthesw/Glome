@@ -39,6 +39,7 @@ description: "Double-precision Glome.Core types for S³ frames, central projecti
 | Method | Behavior |
 | --- | --- |
 | `CentralProjection(chart, radius, offset, out scale)` | Projects tangent `offset` (m): $h = p + v/R$, returns $h / \lVert h \rVert$ with $\text{scale} = \lVert h \rVert$ |
+| `TryInverseCentralProjection(chart, radius, point, out metres)` | Returns local chart XYZ metres for a projected unit point. Returns `false` when `point.Dot(chart.P) <= 1e-8` (the chart horizon or beyond). |
 | `Apply(frame, q)` / `Compose(a, b)` / `Transpose(f)` | 4×4 orthonormal frame matrix operations |
 | `Project(center, point, radius, out metres)` | Log-map into local XYZ metres; returns `false` when angle $\ge \pi - 0.015$ |
 | `Lift(center, metres, radius)` | Inverse of `Project` via `ExpMap` |

@@ -111,6 +111,7 @@ public partial class BoundedSpace : S3Space3D
 #nullable enable
 #if TOOLS
 using System;
+using System.Linq;
 using Glome;
 using Glome.Editor;
 using Godot;
@@ -134,14 +135,35 @@ public partial class SwatchPlugin : EditorPlugin
 
         public GlomeEditorView Bake(S3Space3D space)
         {
-            var snapshot = GlomeBaker.Bake(space, visibility: space.BakeVisibilityPolicy,
-                includeOwners: true);
+            var options = new GlomeBakeOptions(Visibility: space.BakeVisibilityPolicy,
+                IncludeOwners: true, CaptureAuthoringSources: true);
+            var snapshot = GlomeBaker.Bake(space, options);
+            var entries = snapshot.Lights.Select((light, i) => (snapshot.LightSources[i].Id, Light: light)).ToArray();
+            var table = new GlomeLightTable<ulong>(entries);
             var camera = space.GetNode<S3Camera3D>("Walker/Eye");
-            return new(snapshot, GlomeBuffers.Pack(snapshot), camera.EyeFrame(space.Radius));
+            var materials = snapshot.Materials!;
+            var buffers = GlomeBuffers.Pack(snapshot.Geometry, materials.Records, table.Pack(),
+                snapshot.Environment, materials.Banks);
+            return new(snapshot, buffers, camera.EyeFrame(space.Radius))
+            {
+                NativeLightSlots = entries.ToDictionary(e => e.Id, e => (e.Light.Group, table[e.Id]))
+            };
+        }
+
+        public bool TryApplyChange(S3Space3D space, GlomeEditorView view,
+            GlomeViewChange change, GlomeComputeRenderer renderer)
+        {
+            if (!change.TryLight(space, view, out int slot, out var record)) return false;
+            renderer.UpdateLight(slot, record);
+            return true;
         }
     }
 }
 #endif
 ```
+
+在视口左上角的 **ViewMode** 中选择 **Material Swatch**。示例采集源网格，供拾取和拖动线框使用。上传的灯表同时提供槽位映射，编辑现有原生灯光时可直接更新它对应的 GPU 记录。提供器无法处理的编辑会回退到 `Bake`。
+
+有专属环境设置的提供器还可处理 `change.IsEnvironment(space, view.Snapshot)`。先确认 `change.Revision == view.Snapshot.Revision` 且 `space.LastBake == view.Snapshot`，再使用快照的地面材质索引更新环境 uniform。三种内置模式通过这条路径保持预览的着色模式覆盖。
 
 可通过 `GlomeEditorView.Program` 与 `PrepareFrame` 接入自定义计算着色器和逐帧 Set 1 数据；画面随时间持续变化时设置 `Animated = true`。[运行时与编辑器 API](/zh-cn/reference/resources-and-runtime/)

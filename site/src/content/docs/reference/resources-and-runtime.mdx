@@ -43,18 +43,22 @@ GlomeBakeOptions(double? RadiusOverride = null,
     Func<Material?, SurfaceTag>? ResolveMaterial = null,
     Action<S3Anchor3D, S3Frame, Transform3D>? OnAnchor = null,
     Action<int, CollisionShape3D, S3Frame, Transform3D>? OnProxy = null,
-    bool IncludeOwners = false, Predicate<D4>? GroundMask = null)
+    bool IncludeOwners = false, Predicate<D4>? GroundMask = null,
+    bool CaptureAuthoringSources = false)
 ```
 
 - `Visibility`: `HonoredUpToRoot` (0) checks node and ancestor visibility up to the space; `SelfVisible` (1) checks only the node. Enabled colliders always bake regardless of visibility.
 - `ResolveMaterial`: override native `StandardMaterial3D` packing with custom `SurfaceTag(Material, Surface, Traversal)` values (`Materials` becomes `null`).
 - `IncludeOwners`: maps reordered BVH triangles back to their owning `S3Anchor3D` (or mesh) for editor picking.
 - `GroundMask`: pure predicate on unit crossing point `x` for CPU ground tracing (`true` keeps ground; complementary to GPU `GLOME_GROUND_HOLE`).
+- `CaptureAuthoringSources` requests `S3BakeSnapshot.AuthoringSources`. A `GlomeAuthoringSources` contains `Meshes`, `TriangleSources`, and `Lights`. Resolve a BVH hit with `sources.Meshes[sources.TriangleSources[hit.Triangle]]`. This identifies the actual mesh, including one inside a linked instance. The default runtime bake leaves `AuthoringSources` null.
+- `S3BakeSnapshot.LightSources` is available even without authoring capture. Entry `i` is the `GlomeLightSource(ulong Id, string Path)` for `Lights[i]`, with the node’s instance ID and its path relative to the space. These are in bake order. GPU update indices use light-group order.
+- `GlomeBakeOptions.Timings` accepts a `new GlomeBakeTimings(viewName)` for one bake. The built-in editor views carry that measurement through buffer packing and upload, then print `[GLOME-BAKE]` with CPU wall times for each stage.
 
 ## GlomeBaker
 
 ```csharp title="GlomeBaker"
-public static S3BakeSnapshot Bake(S3Space3D space, GlomeBakeOptions? options = null)
+public static S3BakeSnapshot Bake(S3Space3D space, GlomeBakeOptions? options)
 public static Task<S3BakeSnapshot> BakeAsync(S3Space3D space,
     GlomeBakeOptions? options = null, CancellationToken cancellationToken = default)
 ```
@@ -66,6 +70,10 @@ Call from the Godot main thread. `BakeAsync` extracts Godot nodes and callbacks 
 - `GlomeMaterials(MaterialRecord[] Records, TextureBank[] Banks)`: native material table (index `0` is `MaterialRecord.White`) and up to 4 sRGB `TextureBank` arrays.
 - `GlomeBuffers.Pack(S3BakeSnapshot)` / `Pack(BakedGeometry, MaterialRecord[], byte[], EnvironmentBlock, TextureBank[])`: packs buffers to [Set 0 ABI 1](/reference/compute-abi/). Pass the actual `Geometry.Nodes.Length` to `Draw`.
 - `GlomeLight.Directional(pole, radiance, shadows)` / `Omni(position, radiance, metres, radius, shadows)` / `Pack(lights)`: groups lights in `LightGroup` order (`Directional`, `ShadowedDirectional`, `Omni`, `ShadowedOmni`) with a 16-byte count header.
+
+### `GlomeLightTable<TKey>`
+
+Construct a `GlomeLightTable<TKey>` from `IEnumerable<(TKey Source, GlomeLight Light)>` with one unique key per light. `Counts` gives the four group sizes as a `Vector4I`. `table[source]` returns the zero-based record slot after stable grouping. `Pack()` emits the counts followed by the records for Set 0. Use that same slot with `UpdateLight` until a bake changes the light set or grouping.
 
 ## GlomeComputeRenderer
 
@@ -104,5 +112,8 @@ GlomeComputeRenderer(GlomeBuffers buffers, Vector2I size, S3RenderProgram? progr
 
 - **`IGlomeEditorViewProvider`**: implement `Id`, `DisplayName`, `AppliesTo(space)`, `Bake(space)` (plus optional `Resolution`, `DisplayFilter`, `Animated`) and register via `GlomeEditorViews.Register(provider)` (dispose handle to unregister).
 - **`GlomeEditorView(Snapshot, Buffers, InitialView, Program = null, PrepareFrame = null)`**: `PrepareFrame(renderer, view, elapsed)` uploads per-frame Set 1 data and returns the pipeline index.
+- `BakeAsync(space, cancellation)` on `IGlomeEditorViewProvider` defaults to calling `Bake`. Override it to support asynchronous, cancellable preparation.
+- `GlomeEditorView.NativeLightSlots` maps a native light’s instance ID to its `(LightGroup Group, int Slot)` in the view’s packed buffer. Supply the mapping for each new snapshot to support incremental edits.
+- `TryApplyChange(space, view, change, renderer)` handles an Inspector edit or its undo/redo. `GlomeViewChange(long Revision, GodotObject Target, string Property)` identifies the change. `TryLight(space, view, out slot, out record)` resolves a current, compatible light edit. For a matching revision and snapshot, `IsEnvironment(space, snapshot)` recognizes environment uniform edits. Replacing the entire environment is eligible when the effective ground flag and ground material instance match the snapshot. Return `true` after uploading the change. Returning `false` (the default) requests a fresh bake.
 - **`GlomeEditorPlugin`**: exposes `BridgeDirectory`, `BridgeShaderReload`, `TryGetViewState`, `SetView`, `FocusNode`, `RequestRebake`, `CapturePreviewImage`, and `ReloadPreviewShader`.
 - **`GlomeInspectorPlugin`**: adds radius distance readouts, undoable **Scale Entire Scene**, and anchor radial-compression diagnostics to the Inspector.

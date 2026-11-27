@@ -29,6 +29,12 @@ description: "支持烘焙的 StandardMaterial3D 属性、球面光源，以及�
 
 开启 `ShadowEnabled` 后，`StandardLit` 会沿最短测地线追踪阴影。
 
+### 在 S³ 预览中编辑灯光
+
+在 **StandardLit** 下，用检查器修改现有可见灯光的能量或颜色，预览只上传这盏灯对应的 GPU 记录。全向光的范围和无子节点灯光的变换也支持增量更新，撤销与重做会更新同一条记录。增删灯光、切换阴影分组或可见性，以及移动带子节点的灯光，都需要重新烘焙。
+
+开启 **Overlays → Lights & Cameras** 可见光源辅助线与相机视锥。选中设备后，可拖动专用手柄调整全向光范围、改变方向光朝向，或修改 `S3Camera3D` 的垂直视场角。在 `S3Environment` 中修改环境光、背景色或雾时，预览会直接更新环境 uniform。修改地面几何或地面材质需要重烘。
+
 ## 碰撞
 
 在局部切图中放置启用的 `CollisionShape3D`。
@@ -39,6 +45,10 @@ description: "支持烘焙的 StandardMaterial3D 属性、球面光源，以及�
 | `CylinderShape3D` | 局部 Y 轴向实心圆柱（如 `Minimal.tscn` 中央基座）。 |
 | `WalkableBoxShape3D` | **可走台面**：局部 `+Y` 顶面承托行走，侧面和底面保持实体，可用于可跨越也可下穿的桥面。 |
 
+开启 **Overlays → Collision**，选中切图或碰撞体即可查看其烘焙代理。青色线框勾勒实体形状，绿色顶面标出可走盒体的局部 `+Y` 支撑面。
+
 对 `WalkableBoxShape3D` 施加剪切变换即可制作楼梯斜坡。`S3Elevation` 支持最高 **0.45 m** 的上台阶高度，下坡贴合台面，离开边缘按 **9.81 m/s²** 重力下落。
+
+内置视图完整重烘时，输出面板会打印 `[GLOME-BAKE]`、视图名及六项耗时（毫秒）。**Extract** 提取场景数据，**Texture** 读取和打包纹理，**Project** 投影网格顶点，**BVH** 构建搜索树，**Pack** 准备 GPU 缓冲区，**Upload** 记录渲染线程提交资源所花的时间。
 
 **收集与可见性规则。** `S3Space3D.BakeVisibilityPolicy`（`HonoredUpToRoot` 或 `SelfVisible`）仅过滤网格和灯光。空间内所有启用且受支持的 `CollisionShape3D`（包括隐藏节点或 `Area3D` 下的形状）目前都会烘焙为实体碰撞；如需排除，请勾选 `CollisionShape3D.Disabled` 后重新烘焙。

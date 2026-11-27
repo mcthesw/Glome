@@ -39,6 +39,7 @@ description: "Glome.Core 双精度 S³ 标架、中心投影、球冠 BVH 求交
 | 方法 | 行为 |
 | --- | --- |
 | `CentralProjection(chart, radius, offset, out scale)` | 切向偏移 `offset`（m）的球心投影：$h = p + v/R$，返回 $h / \lVert h \rVert$ 与 $\text{scale} = \lVert h \rVert$ |
+| `TryInverseCentralProjection(chart, radius, point, out metres)` | 将投影后的单位点还原为切图局部 XYZ 米制坐标。当 `point.Dot(chart.P) <= 1e-8`（抵达或越过切图地平线）时返回 `false`。 |
 | `Apply(frame, q)` / `Compose(a, b)` / `Transpose(f)` | 4×4 正交标架矩阵运算 |
 | `Project(center, point, radius, out metres)` | 对数映射到局部 XYZ 米制坐标；角距离 $\ge \pi - 0.015$ 时返回 `false` |
 | `Lift(center, metres, radius)` | `Project` 的逆运算（经 `ExpMap`） |

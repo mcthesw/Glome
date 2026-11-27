@@ -3,33 +3,42 @@ title: "Editor workflow"
 description: "Use the S³ main screen to preview curvature, pick geometry, move anchors with undo, and rescale a scene."
 ---
 
-Open a scene containing an `S3Space3D` and click **S³** at the top of Godot to build the scene directly on the sphere. Select an anchor and use **Focus** (**F**) to frame it. Use **Q / W / E** to select, move, or rotate. Hold **Ctrl** while dragging to snap by 0.5 metres of arc or 15 degrees. In the **Anchor** menu, choose **New Anchor Here** to place an anchor on the ground ahead of the camera, or **Duplicate at Antipode** to copy the selected anchor and its assembly to the opposite point. Open the ordinary **3D** viewport when editing local meshes within a single anchor's tangent chart.
+Open a scene containing an `S3Space3D` and click **S³** at the top of Godot. The viewport shows the curved scene between the Scene tree and Inspector. Click a mesh with **Select** (**Q**) and press **F** to frame it.
 
-![Godot S³ main screen showing the raytraced preview between the Scene tree and Inspector.](/media/editor-s3-mainscreen.webp)
+![Godot S³ editor with a native toolbar above the curved scene and a shading selector in the viewport.](/media/editor-s3-mainscreen.webp)
 
-## Toolbar and navigation
+## Toolbar and view modes
 
-| Control | Action |
+| Control | Use |
 | --- | --- |
-| **Space** / **ViewMode** | Pick the active space (when multiple exist) and preview mode (`StandardLit`, `ClayClean`, `Unlit`, or custom providers). |
-| **Origin** / **Focus (F)** | Reset to the origin view, or smoothly frame the selected anchor (`F` while the preview has focus). |
-| **From 3D** | Map the 3D viewport camera into $S^3$, smoothly blending near anchors with `EditorChartRadius > 0`. |
-| **Antipode** / **Level** | Jump to the exact antipode keeping local orientation, or level the horizon and pitch. |
-| **Select / Move / Rotate** | Switch between select (**Q**), geodesic move (**W**), and 3-axis rotate (**E**) gizmos, with **Snap** (**Ctrl**) and **Shift** fine control. |
-| **Anchor** | Create a new anchor ahead of the camera (**New Anchor Here**), clone to the exact antipode (**Duplicate at Antipode**), snap to ground, or face origin with full Undo/Redo. |
-| **Rebake** / **Bookmarks** | Trigger a manual rebake or save/restore named camera bookmarks; live edit previews coalesce and cancel superseded async bakes. |
+| **Select / Move / Rotate / Scale** | Godot 4.7 tool icons. With the viewport focused, press **Q / W / E / R** to switch tools. **Move** is active initially. |
+| **Snap** | Toggle snapping for a drag, or hold **Ctrl** temporarily. Translation snaps to 0.5 m of arc, rotation to 15°, and scale factors to 0.1 increments. Hold **Shift** for fine motion. |
+| **Anchor** | **New Anchor Here** places an anchor on the ground ahead of the view. Select an editable anchor to use **Duplicate at Antipode**, **Snap to Ground**, or **Face Origin**. These actions support undo. |
+| **View** | **Focus Selection (F)** frames the selected node. **Reset View** restores the provider’s starting camera. **From 3D** maps the ordinary 3D editor camera into $S^3$, blending near anchors with `EditorChartRadius > 0`. |
+| **View** navigation | **Go to Origin** goes to the origin frame. **Go to Antipode** transports the view to the opposite point. **Level Horizon** levels the camera. **Bookmarks** saves, restores, renames, or deletes a named camera view with its shading mode. |
+| **Overlays** | **Anchor Pins** starts enabled. Turn on **Selection Bounds** for projected mesh bounds, **Collision** for the selection’s collision proxies, or **Lights & Cameras** to pick and edit lights and cameras. |
+| **Space** | Appears when the edited scene contains multiple spaces. The menu shows scene-relative paths and the closed selector shows the active space’s name. |
 
-| Input in preview | Action |
+The **ViewMode** selector sits in the upper-left corner of the viewport. Switch between `StandardLit`, `ClayClean`, and `Unlit` on the same baked geometry. Host-provided views appear here for the spaces they support. Use **View → Rebake Preview** to request a new bake.
+
+## Navigate and place scenes
+
+| Viewport input | Action |
 | --- | --- |
-| Hold RMB + mouse, `WASD`, `Q`/`E` | Fly (`Shift` for boost; scroll while flying to tune speed 0.25–128 m/s). |
-| `Q` / `W` / `E`, `F` (when not flying) | Switch select / move / rotate tool; press **F** to frame the selected anchor. |
-| MMB drag / `Shift` + MMB drag | Orbit pivot / pan camera and pivot. |
-| Scroll | Dolly along view direction. |
-| LMB | Pick geometry or anchor pins via the spherical-cap BVH and set orbit pivot (ground click clears selection). |
+| Hold RMB and move the mouse | Look around. Fly with **WASD** and **Q / E**. Hold **Shift** to boost. |
+| RMB + wheel | Adjust fly speed between 0.25 and 128 m/s. A temporary readout shows the new speed. **View → Reset Fly Speed** restores 8 m/s. |
+| MMB drag / **Shift** + MMB drag | Orbit the pivot / pan the camera and pivot together. |
+| Wheel | Dolly along the view direction. |
 
-## Moving anchors and scaling a scene
+Drag a 3D `.tscn` from the **FileSystem** dock onto a surface in the preview. The placed node keeps its `PackedScene` link and aligns its local up axis to the surface. With an editable chart selected, the drop lands inside that chart’s forward hemisphere. Clear the selection to place a separate anchor in the space. A dropped scene with an ordinary 3D root gets an anchor wrapper.
 
-Select any `S3Anchor3D` in the edited scene to show its $SO(4)$ gizmo: drag the X or Z arrows along local axes, the center handle across the local XZ plane, or the ring to yaw. Releasing LMB writes the displacement into `RelativeSpin` with full Undo/Redo support. If an anchor sits right at the camera's antipode (within 0.02 rad), the gizmo hides — press **F** to reframe.
+In **Select** mode, click the visible geometry to pick its source mesh. A click on a locked scene instance selects its root. Enable **Editable Children** on the instance in the Scene tree to select individual children. Clicking ground clears the selection. **Ctrl+D** duplicates the selected node in place and preserves scene links. Placement and duplication each create one undo action.
+
+## Edit a node on the sphere
+
+Use **W** to move along an axis or in a handle plane, **E** to rotate with the three rings, and **R** to scale an editable mesh or anchor. While dragging, a curved wireframe previews the edit over the last baked scene. Release to commit a single undoable change, or press **Esc** to discard the drag. Anchors store geodesic moves and rotations in `RelativeSpin`. Child nodes store their local transform. If the gizmo lies within 0.02 radians of the view’s antipode, press **F** to reframe it.
+
+## Inspect distortion and scale a scene
 
 The Inspector displays **Farthest vertex**, **Chart angle**, and **Radial compression** on anchors, and great-circle distances on `S3Space3D`.
 

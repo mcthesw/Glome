@@ -23,7 +23,7 @@ Open `res://addons/glome/Examples/Minimal.tscn` and press **F6**. In the opening
 Each `Meridian` instance sets `ChartPlacement = SphericalAngles`: `PolarDegrees` controls how far it sits from the origin along the ground, and `BearingDegrees` picks its compass direction (`0°` toward `+Z`, `90°` toward `+X`).
 
 1. Press **F8** to stop the running scene, switch to the **S³** editor tab, and select `Meridian1` (`PolarDegrees = 32°`, `BearingDegrees = 153°`).
-2. Keep `PolarDegrees` at `32°`, change `BearingDegrees` to `175°`, and click **Rebake**.
+2. Keep `PolarDegrees` at `32°`, change `BearingDegrees` to `175°`, and watch the preview update. To request a fresh bake manually, use **View → Rebake Preview**.
 3. The gate moves horizontally across your view while keeping the same ground distance ($14 \times 32\pi/180 \approx 7.82\text{ m}$).
 
 The seven gates span `PolarDegrees` from `32°` (`Meridian1`, 7.82 m) out to **`170°`** (`Meridian5`, 41.54 m — only 10° short of the origin's antipode). [Why distant gates look large](/authoring/s3-intuition/)

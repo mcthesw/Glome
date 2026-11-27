@@ -20,7 +20,7 @@ All scene nodes live in the `Glome` namespace and inherit `Node3D`. Distances ar
 | `DisplayFilter` | `CanvasItem.TextureFilterEnum` | `Linear` | Display sampling filter (updates live). |
 | `BakeVisibilityPolicy` | `BakeVisibility` | `HonoredUpToRoot` | Visibility filter for meshes and lights (`HonoredUpToRoot` or `SelfVisible`). |
 | `LastBake` | `S3BakeSnapshot?` | `null` | Read-only. Latest published bake snapshot. |
-| `BakeRevision` | `long` | `0` | Read-only. Increments from `1` on each published bake. |
+| `BakeRevision` | `long` | `0` | Read-only. Increments for each published bake. Built-in editor mode switches and incremental light or environment edits keep this revision. |
 | `OutputTexture` | `Texture2D?` | `null` | Read-only. Compute output texture when running. |
 
 | Method | Behavior |
@@ -72,7 +72,7 @@ If no current `S3Camera3D` exists, automatic sessions render from `new WalkPose(
 
 | Property | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `Fov` | `float` | `70` | Vertical field of view in degrees (`1°`–`179°`). |
+| `Fov` | `float` | `70` | Vertical FOV (1°–179°). Enable **Overlays → Lights & Cameras** and drag the selected camera’s frustum handle to adjust it. |
 | `Current` | `bool` | `true` | Marks this camera active within its `S3Space3D`. |
 
 | Method | Behavior |
@@ -115,6 +115,9 @@ Assign to `CollisionShape3D.Shape` and size via inherited `BoxShape3D.Size`. Its
 | --- | --- |
 | `AudioStreamPlayer3D CreateVoice(string name, string bus, float gainDb, float maxDistance, float unitSize, AudioStreamPlayer3D.AttenuationModelEnum attenuation)` | Creates and configures a child 3D audio player under the rig. |
 | `void Play(AudioStream stream, S3Frame listener, D4 source, double radius, AudioPathVoice direct, AudioPathVoice? complementary = null, D4? localFallback = null)` | Resolves direct and optional opposite-side paths and schedules both voices. |
+| `void CancelPendingPlayback()` | Cancels delayed arrivals scheduled before this call. Voices already playing continue. |
+
+The C# event `Arrived` (`Action<AudioStream, S3AudioArrival>`) fires when an in-range voice starts, including after a complementary path’s delay. `S3AudioArrival(D4 Source, bool Complementary, D4? LocalFallback)` identifies the spherical source, which path arrived, and the optional fallback direction supplied to `Play`.
 
 ### AudioPathVoice
 

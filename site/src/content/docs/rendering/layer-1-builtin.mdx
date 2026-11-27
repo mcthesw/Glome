@@ -11,11 +11,13 @@ Leave `S3Space3D.RenderProgram` empty to render with the built-in shader ([`glom
 - **`Unlit`**: samples albedo + emission + geodesic fog without evaluating scene lights. Useful for inspecting textures, UVs, and cutouts.
 - **`ClayClean`**: neutral normal-shaded clay preview over a subtle 1 m ground grid, bypassing authored colors, lights, and fog.
 
+In the editor, choose **ViewMode** in the upper-left of the S³ viewport to compare these three modes. Switching updates the environment block on the existing renderer and keeps the current camera, geometry, and bake revision. The selector overrides the shading mode for the preview. F6 uses the authored `S3Environment.ShadingMode`.
+
 ![ClayClean preview of a cutout panel, cylinder, and sphere over the neutral 1 m grid.](/media/shading-clay-clean.webp)
 
 ## Environment settings
 
-Configure `BackgroundColor`, `AmbientColor`, `AmbientEnergy`, `FogColor`, `FogDensity`, `ShadingMode`, `EquatorialGroundEnabled`, and `GroundMaterial` on `S3Space3D.Environment` (full defaults in [S3Environment reference](/reference/resources-and-runtime/#s3environment)). Changing `S3Environment` properties at runtime takes effect after a rebake, or immediately via `GlomeComputeRenderer.UpdateEnvironment` in a custom host.
+Configure `BackgroundColor`, `AmbientColor`, `AmbientEnergy`, `FogColor`, `FogDensity`, `ShadingMode`, `EquatorialGroundEnabled`, and `GroundMaterial` on `S3Space3D.Environment` (full defaults in [S3Environment reference](/reference/resources-and-runtime/#s3environment-and-s3shadingmode)). Changing `S3Environment` properties at runtime takes effect after a rebake, or immediately via `GlomeComputeRenderer.UpdateEnvironment` in a custom host.
 
 ## Equatorial ground grid and floorless mode
 

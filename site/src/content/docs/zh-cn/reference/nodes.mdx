@@ -20,7 +20,7 @@ description: "S3Space3D、S3Anchor3D、S3Camera3D、S3CharacterController、Walk
 | `DisplayFilter` | `CanvasItem.TextureFilterEnum` | `Linear` | 显示采样过滤方式，运行时实时生效。 |
 | `BakeVisibilityPolicy` | `BakeVisibility` | `HonoredUpToRoot` | 网格与灯光的可见性过滤策略（`HonoredUpToRoot` 或 `SelfVisible`）。 |
 | `LastBake` | `S3BakeSnapshot?` | `null` | 只读，最近一次发布的烘焙快照。 |
-| `BakeRevision` | `long` | `0` | 只读，每次发布从 `1` 起递增。 |
+| `BakeRevision` | `long` | `0` | 只读。每次发布完整烘焙时递增。编辑器切换内置着色模式、增量更新灯光或环境时保持原值。 |
 | `OutputTexture` | `Texture2D?` | `null` | 只读，运行中的计算输出纹理。 |
 
 | 方法 | 作用 |
@@ -72,7 +72,7 @@ description: "S3Space3D、S3Anchor3D、S3Camera3D、S3CharacterController、Walk
 
 | 属性 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `Fov` | `float` | `70` | 垂直视场角（度，`1°`–`179°`）。 |
+| `Fov` | `float` | `70` | 垂直视场角（1°–179°）。开启 **Overlays → Lights & Cameras** 后，可拖动选中相机的视锥手柄调整。 |
 | `Current` | `bool` | `true` | 标记为所属 `S3Space3D` 的活动相机。 |
 
 | 方法 | 作用 |
@@ -115,6 +115,9 @@ description: "S3Space3D、S3Anchor3D、S3Camera3D、S3CharacterController、Walk
 | --- | --- |
 | `AudioStreamPlayer3D CreateVoice(string name, string bus, float gainDb, float maxDistance, float unitSize, AudioStreamPlayer3D.AttenuationModelEnum attenuation)` | 创建并初始化子级 3D 音频播放器。 |
 | `void Play(AudioStream stream, S3Frame listener, D4 source, double radius, AudioPathVoice direct, AudioPathVoice? complementary = null, D4? localFallback = null)` | 求解直达与可选反向绕行声路并调度播放。 |
+| `void CancelPendingPlayback()` | 取消此前排队等待的延迟声路。正在播放的声音会继续。 |
+
+C# 事件 `Arrived`（`Action<AudioStream, S3AudioArrival>`）在范围内的声路开始播放时触发，包含延迟抵达的反向声路。`S3AudioArrival(D4 Source, bool Complementary, D4? LocalFallback)` 给出球面声源位置、抵达的声路以及传给 `Play` 的可选备用方向。
 
 ### AudioPathVoice
 
