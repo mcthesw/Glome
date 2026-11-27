@@ -1,6 +1,8 @@
 #nullable enable
 #if TOOLS
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace Glome.Editor;
@@ -9,6 +11,13 @@ namespace Glome.Editor;
 public partial class GlomeInspectorPlugin : EditorInspectorPlugin
 {
     internal EditorUndoRedoManager Undo { private get; init; } = null!;
+
+    private readonly HashSet<Observation> _observations = [];
+
+    internal void DetachAll()
+    {
+        foreach (var observation in _observations.ToArray()) observation.Detach();
+    }
 
     public override bool _CanHandle(GodotObject obj) => obj is S3Space3D or S3Anchor3D;
 
@@ -25,7 +34,7 @@ public partial class GlomeInspectorPlugin : EditorInspectorPlugin
                 Step = 0.001, Prefix = "Scale to", Suffix = "m", TooltipText = "Target curvature radius"
             };
             var apply = new Button { Text = "Scale Entire Scene" };
-            apply.Pressed += () => GlomeSceneScale.Apply(space, radius.Value, Undo);
+            void Scale() => GlomeSceneScale.Apply(space, radius.Value, Undo);
             box.AddChild(label);
             box.AddChild(radius);
             box.AddChild(apply);
@@ -36,8 +45,13 @@ public partial class GlomeInspectorPlugin : EditorInspectorPlugin
                 previous = radius.Value = space.Radius;
                 label.Text = $"Great Circle Circumference  {Math.Tau * previous:0.00} m\n" +
                     $"Equatorial Distance  {Math.PI / 2 * previous:0.00} m\nAntipodal Distance  {Math.PI * previous:0.00} m";
-            });
+            }, apply, Scale);
             AddCustomControl(box);
+            if (hint == PropertyHint.Range && GlomeRadiusProperty.CreateFor(hintString) is { } slider)
+            {
+                AddPropertyEditor(name, slider);
+                return true;
+            }
         }
         return false;
     }
@@ -49,37 +63,64 @@ public partial class GlomeInspectorPlugin : EditorInspectorPlugin
         Observe(label, () =>
         {
             if (!IsInstanceValid(space) || !IsInstanceValid(anchor)) return;
-            double offset = FarthestVertex(anchor, space.Radius);
+            var extent = GlomeAuthoring.Measure(anchor, space.Radius);
+            double offset = extent.ChartMetres;
             double ratio = offset / space.Radius;
-            double compression = 100 * ratio * ratio / (1 + ratio * ratio);
+            double compression = extent.Compression(space.Radius);
             label.Text = $"Farthest vertex  {offset:0.00} m\nChart angle  {double.RadiansToDegrees(Math.Atan(ratio)):0.0}°\n" +
                 $"Radial compression  {compression:0.0}%" +
-                (ratio >= 1.0 / 3 - 1e-8 ? "\nA second anchor can reduce distortion." : "");
+                (extent.Distorted(space.Radius) ? "\nA second anchor can reduce distortion." : "");
         });
         AddCustomControl(label);
     }
 
-    private void Observe(Control control, Action update)
+    private void Observe(Control control, Action update, Button? button = null, Action? press = null)
     {
-        control.TreeEntered += () => { update(); Undo.VersionChanged += update; Undo.HistoryChanged += update; };
-        control.TreeExiting += () => { Undo.VersionChanged -= update; Undo.HistoryChanged -= update; };
+        var observation = new Observation();
+        _observations.Add(observation);
+        observation.Attach(this, control, update, button, press);
     }
 
-    private static double FarthestVertex(S3Anchor3D anchor, double radius)
+    // A native object/method Callable keeps its identity while Godot serializes managed scripts.
+    [Tool]
+    private partial class Observation : RefCounted
     {
-        var (_, transform) = anchor.ChartPose(radius);
-        double squared = 0;
-        GlomeChart.Walk(anchor, transform, (node, pose) =>
+        private GlomeInspectorPlugin? _owner;
+        private readonly List<(GodotObject Source, StringName Signal, Callable Target)> _connections = [];
+        private Action? _update, _press;
+
+        internal void Attach(GlomeInspectorPlugin owner, Control control, Action update, Button? button, Action? press)
         {
-            if (node is not MeshInstance3D { Mesh: { } mesh }) return;
-            for (int i = 0; i < mesh.GetSurfaceCount(); i++)
-            {
-                using var arrays = mesh.SurfaceGetArrays(i);
-                foreach (var vertex in arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array())
-                    squared = Math.Max(squared, (pose * vertex).LengthSquared());
-            }
-        });
-        return Math.Sqrt(squared);
+            _owner = owner;
+            _update = update;
+            _press = press;
+            Listen(control, Node.SignalName.TreeEntered, MethodName.Refresh);
+            Listen(control, Node.SignalName.TreeExiting, MethodName.Detach);
+            Listen(owner.Undo, EditorUndoRedoManager.SignalName.VersionChanged, MethodName.Refresh);
+            Listen(owner.Undo, EditorUndoRedoManager.SignalName.HistoryChanged, MethodName.Refresh);
+            if (button != null) Listen(button, BaseButton.SignalName.Pressed, MethodName.Press);
+        }
+
+        private void Listen(GodotObject source, StringName signal, StringName method)
+        {
+            var target = new Callable(this, method);
+            source.Connect(signal, target);
+            _connections.Add((source, signal, target));
+        }
+
+        private void Refresh() => _update?.Invoke();
+        private void Press() => _press?.Invoke();
+
+        internal void Detach()
+        {
+            foreach (var (source, signal, target) in _connections)
+                if (IsInstanceValid(source) && source.IsConnected(signal, target)) source.Disconnect(signal, target);
+            _connections.Clear();
+            _owner?._observations.Remove(this);
+            _owner = null;
+            _update = _press = null;
+        }
     }
+
 }
 #endif

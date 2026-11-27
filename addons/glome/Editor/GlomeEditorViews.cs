@@ -3,6 +3,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Glome.Core;
 using Godot;
 
@@ -22,6 +24,8 @@ public interface IGlomeEditorViewProvider
     CanvasItem.TextureFilterEnum DisplayFilter => CanvasItem.TextureFilterEnum.Linear;
     bool Animated => false;
     GlomeEditorView Bake(S3Space3D space);
+    Task<GlomeEditorView> BakeAsync(S3Space3D space, CancellationToken cancellation) =>
+        Task.FromResult(Bake(space)); // Existing synchronous extension providers remain supported.
 }
 
 public static class GlomeEditorViews
@@ -31,9 +35,19 @@ public static class GlomeEditorViews
         public string Id => mode.ToString();
         public string DisplayName => Id;
         public bool AppliesTo(S3Space3D space) => true;
-        public GlomeEditorView Bake(S3Space3D space)
+        public GlomeEditorView Bake(S3Space3D space) => Build(space,
+            GlomeBaker.Bake(space, visibility: space.BakeVisibilityPolicy, includeOwners: true));
+
+        public async Task<GlomeEditorView> BakeAsync(S3Space3D space, CancellationToken cancellation)
         {
-            var snapshot = GlomeBaker.Bake(space, visibility: space.BakeVisibilityPolicy, includeOwners: true);
+            var snapshot = await GlomeBaker.BakeAsync(space,
+                new(Visibility: space.BakeVisibilityPolicy, IncludeOwners: true), cancellation);
+            cancellation.ThrowIfCancellationRequested();
+            return Build(space, snapshot);
+        }
+
+        private GlomeEditorView Build(S3Space3D space, S3BakeSnapshot snapshot)
+        {
             var env = snapshot.Environment;
             env.ModeGroundMaterial.X = (int)mode;
             var buffers = GlomeBuffers.Pack(snapshot) with { Environment = env };

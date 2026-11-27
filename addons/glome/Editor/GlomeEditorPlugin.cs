@@ -82,19 +82,24 @@ public partial class GlomeEditorPlugin : EditorPlugin, ISerializationListener
     public void OnBeforeSerialize()
     {
         generation++;
-        bridge?.Close();
         bridge = null;
         if (session == null) return;
         deferredState = session.State();
         session.Dispose();
         session = null;
-        RemoveInspectorPlugin(inspector!);
+        inspector!.DetachAll();
+        RemoveInspectorPlugin(inspector);
         inspector = null;
     }
+    private void Reopen(int expected)
+    {
+        if (expected == generation) Open();
+    }
+
     public void OnAfterDeserialize()
     {
         int expected = generation;
-        Callable.From(() => { if (expected == generation) Open(); }).CallDeferred();
+        CallDeferred(MethodName.Reopen, expected);
     }
 }
 #endif

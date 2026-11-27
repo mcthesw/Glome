@@ -17,7 +17,6 @@ internal sealed class GlomeEditorBridge(GlomeEditorPlugin preview)
     private GlomeDebugBridge _files = OpenFiles(null);
     private string? _directory;
     private static EditorInterface Editor => EditorInterface.Singleton;
-    private bool _closed;
 
     private static GlomeDebugBridge OpenFiles(string? directory) =>
         new(Path.GetFullPath(ProjectSettings.GlobalizePath(directory ??
@@ -35,14 +34,6 @@ internal sealed class GlomeEditorBridge(GlomeEditorPlugin preview)
         _files.Poll(delta, Dispatch);
     }
 
-    private async Task<Result> Snapshot()
-    {
-        await preview.ToSignal(preview.GetTree(), SceneTree.SignalName.ProcessFrame);
-        if (_closed) return PreviewUnavailable();
-        await preview.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-        return _closed ? PreviewUnavailable() : await _files.Snapshot(BuildSnapshot, preview.CapturePreviewImage);
-    }
-
     private object BuildSnapshot(string? imagePath)
     {
         var root = Editor.GetEditedSceneRoot();
@@ -56,14 +47,14 @@ internal sealed class GlomeEditorBridge(GlomeEditorPlugin preview)
             camera["pivotDistM"] = distance;
             camera["fovDeg"] = fov;
         }
-        return new
+        return new Dictionary<string, object?>
         {
-            source = "editor", timestamp = DateTimeOffset.UtcNow, editedScenePath = scene,
-            hasUnsavedChanges = root is not null && (string.IsNullOrEmpty(scene) || Editor.GetUnsavedScenes().Contains(scene)),
-            openScenes = Editor.GetOpenScenes(),
-            spacePath = space is not null ? root?.GetPathTo(space).ToString() : null, radius = space?.Radius, viewMode, camera,
-            selectedNodes = Editor.GetSelection().GetSelectedNodes().Select(node => Describe(node, root)).ToArray(),
-            imagePath
+            ["source"] = "editor", ["timestamp"] = DateTimeOffset.UtcNow, ["editedScenePath"] = scene,
+            ["hasUnsavedChanges"] = root is not null && (string.IsNullOrEmpty(scene) || Editor.GetUnsavedScenes().Contains(scene)),
+            ["openScenes"] = Editor.GetOpenScenes(),
+            ["spacePath"] = space is not null ? root?.GetPathTo(space).ToString() : null, ["radius"] = space?.Radius, ["viewMode"] = viewMode, ["camera"] = camera,
+            ["selectedNodes"] = Editor.GetSelection().GetSelectedNodes().Select(node => Describe(node, root)).ToArray(),
+            ["imagePath"] = imagePath
         };
     }
 
@@ -71,19 +62,19 @@ internal sealed class GlomeEditorBridge(GlomeEditorPlugin preview)
     {
         var spatial = node as Node3D;
         var anchor = node as S3Anchor3D;
-        return new
+        return new Dictionary<string, object?>
         {
-            name = node.Name.ToString(), path = (root?.GetPathTo(node) ?? node.GetPath()).ToString(), type = node.GetType().Name,
-            transform = spatial is null ? null : new
+            ["name"] = node.Name.ToString(), ["path"] = (root?.GetPathTo(node) ?? node.GetPath()).ToString(), ["type"] = node.GetType().Name,
+            ["transform"] = spatial is null ? null : new Dictionary<string, object?>
             {
-                position = Vector(spatial.Position), rotationDeg = Vector(spatial.RotationDegrees), scale = Vector(spatial.Scale)
+                ["position"] = Vector(spatial.Position), ["rotationDeg"] = Vector(spatial.RotationDegrees), ["scale"] = Vector(spatial.Scale)
             },
-            anchor = anchor is null ? null : new
+            ["anchor"] = anchor is null ? null : new Dictionary<string, object?>
             {
-                placement = anchor.ChartPlacement.ToString(), polarDeg = anchor.PolarDegrees,
-                azimuthDeg = anchor.BearingDegrees, elevationDeg = anchor.ElevationDegrees,
-                arcMetres = anchor.ArcMetres, localOffset = Vector(anchor.LocalOffset),
-                editorChartRadius = anchor.EditorChartRadius, relativeSpin = anchor.RelativeSpin
+                ["placement"] = anchor.ChartPlacement.ToString(), ["polarDeg"] = anchor.PolarDegrees,
+                ["azimuthDeg"] = anchor.BearingDegrees, ["elevationDeg"] = anchor.ElevationDegrees,
+                ["arcMetres"] = anchor.ArcMetres, ["localOffset"] = Vector(anchor.LocalOffset),
+                ["editorChartRadius"] = anchor.EditorChartRadius, ["relativeSpin"] = anchor.RelativeSpin
             }
         };
     }
@@ -93,7 +84,7 @@ internal sealed class GlomeEditorBridge(GlomeEditorPlugin preview)
         switch (command)
         {
             case "status": return _files.Status(BuildSnapshot);
-            case "snapshot": return await Snapshot();
+            case "snapshot": return await _files.Snapshot(BuildSnapshot, preview.CapturePreviewImage);
             case "rebake":
                 return preview.RequestRebake() ? new(true, "Preview rebake requested.") : PreviewUnavailable();
             case "reload_shader":
@@ -170,6 +161,5 @@ internal sealed class GlomeEditorBridge(GlomeEditorPlugin preview)
 
     private static Result PreviewUnavailable() => new(false, "Open a scene with an S³ space and let its preview render.");
 
-    public void Close() => _closed = true;
 }
 #endif

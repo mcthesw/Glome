@@ -28,6 +28,7 @@ internal sealed partial class GlomeEditorSession
 
     private void SetCamera(Dict camera)
     {
+        _focus = null;
         if (camera.TryGetValue("view", out var view) && Provider.Id != view.AsString()) SelectView(view.AsString());
         var h = camera["horizon"].AsFloat64Array();
         var c = camera["pivot"].AsFloat64Array();
@@ -63,7 +64,7 @@ internal sealed partial class GlomeEditorSession
     private void Restore(Dict state)
     {
         SetCamera(state);
-        speed = state["speed"].AsDouble();
+        SetSpeed(state["speed"].AsDouble());
         if (state.TryGetValue("mode", out var legacy))
         {
             // Version 1 had Clean at index zero and a single optional extension at one.
@@ -78,7 +79,7 @@ internal sealed partial class GlomeEditorSession
         var menu = new MenuButton { Text = "Bookmarks" };
         toolbar.AddChild(menu);
         var popup = menu.GetPopup();
-        menu.AboutToPopup += () =>
+        Listen(menu, MenuButton.SignalName.AboutToPopup, Callable.From(() =>
         {
             popup.Clear();
             popup.AddItem("Save Current View...", 0);
@@ -88,31 +89,35 @@ internal sealed partial class GlomeEditorSession
             popup.AddItem("Delete...", 2);
             foreach (int id in new[] { 1, 2 })
                 popup.SetItemDisabled(popup.GetItemIndex(id), chosen < 0 || chosen >= marks.Count);
-        };
-        popup.IdPressed += id =>
+        }));
+        var dialog = new ConfirmationDialog();
+        var field = new LineEdit();
+        dialog.AddChild(field);
+        panel.AddChild(dialog);
+        Marks? target = null;
+        Dict? camera = null;
+        int index = -1;
+        Listen(dialog, AcceptDialog.SignalName.Confirmed, Callable.From(() =>
+        {
+            string name = field.Text.Trim();
+            if (target != marks || name.Length == 0) return;
+            if (camera != null) { camera["name"] = name; marks.Add(camera); chosen = marks.Count - 1; }
+            else if (index >= 0 && index < marks.Count) marks[index]["name"] = name;
+        }));
+        Listen(popup, PopupMenu.SignalName.IdPressed, Callable.From<long>(id =>
         {
             if (_bake == null) return;
             if (id >= 3) { chosen = (int)id-3; SetCamera(marks[chosen]); return; }
             if (id == 2) { marks.RemoveAt(chosen); chosen = -1; return; }
-            var dialog = new ConfirmationDialog { Title = id == 0 ? "Save Current View" : "Rename Bookmark" };
-            var field = new LineEdit { Text = id == 0 ? $"View {marks.Count+1}" : marks[chosen]["name"].AsString() };
-            var target = marks;
-            int index = chosen;
-            var camera = CameraState();
-            dialog.AddChild(field);
-            panel.AddChild(dialog);
-            dialog.Confirmed += () =>
-            {
-                string name = field.Text.Trim();
-                if (target != marks || name.Length == 0) return;
-                if (id == 0) { camera["name"] = name; marks.Add(camera); chosen = marks.Count-1; }
-                else marks[index]["name"] = name;
-            };
-            dialog.VisibilityChanged += () => { if (!dialog.Visible) dialog.QueueFree(); };
+            target = marks;
+            index = chosen;
+            camera = id == 0 ? CameraState() : null;
+            dialog.Title = id == 0 ? "Save Current View" : "Rename Bookmark";
+            field.Text = id == 0 ? $"View {marks.Count + 1}" : marks[chosen]["name"].AsString();
             dialog.PopupCentered(new Vector2I(320, 110));
             field.GrabFocus();
             field.SelectAll();
-        };
+        }));
     }
 }
 #endif

@@ -12,13 +12,23 @@ namespace Glome.Editor;
 internal sealed partial class GlomeEditorSession : IDisposable
 {
     private readonly GlomeEditorPlugin plugin;
+    private readonly List<(GodotObject Source, StringName Signal, Callable Target)> _signals = [];
+
+    private void Listen(GodotObject source, StringName signal, Callable target)
+    {
+        source.Connect(signal, target);
+        _signals.Add((source, signal, target));
+    }
     private readonly VBoxContainer panel = new() { Visible = false, SizeFlagsVertical = Control.SizeFlags.ExpandFill };
     private readonly HFlowContainer toolbar = new();
     private S3BakeSnapshot? displayedBake;
     private S3Frame submitted;
     private (S3BakeSnapshot Bake, S3Frame View, Vector2I Size, double Fov)? awaitingPresentation;
     private bool flying, syncingSelection, disposed;
-    private double speed = 8;
+    private readonly HashSet<Key> _flyKeys = [];
+    private bool _flyFast;
+    private const double DefaultSpeed = 8;
+    private double speed = DefaultSpeed;
     private S3Frame displayed;
     private TextureRect _image = null!;
 
@@ -57,7 +67,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
 
     private void UpdateResolution(double delta)
     {
-        var target = Provider.Resolution(TargetSize());
+        var target = _activeProvider!.Resolution(TargetSize());
         if (pendingSize != target) { pendingSize = target; stableSeconds = 0; }
         else stableSeconds += delta;
         if (stableSeconds < 0.1) return;
@@ -104,7 +114,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
 
     private void VirtualPivot()
     {
-        _pivotDist = 4.85;
+        _pivotDist = Math.Min(4.85, Math.PI * _space!.Radius * 0.4);
         _pivot = new ArcRay(_view.P, -_view.Back).At(_pivotDist / _space!.Radius);
     }
 
@@ -113,7 +123,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
     private void Orbit(Vector2 delta)
     {
         double r = _bake!.Geometry.Radius;
-        double angle = Math.Clamp(_pivotDist, .35, Math.PI*r-.35)/r;
+        double angle = Math.Clamp(_pivotDist / r, Math.Min(.35 / r, .1), Math.PI - Math.Min(.35 / r, .1));
         var radial = _view.P.Reject(_pivot);
         if (radial.Length < 1e-9) return;
         radial = radial.Unit();
@@ -142,6 +152,10 @@ internal sealed partial class GlomeEditorSession : IDisposable
     }
     private double _time;
     private bool _needsBake;
+    private double _quietTime;
+    private System.Threading.CancellationTokenSource? _bakeCancellation;
+    private Task<GlomeEditorView>? _baking;
+    private IGlomeEditorViewProvider? _activeProvider;
 
     public GlomeEditorSession(GlomeEditorPlugin plugin)
     {
@@ -151,8 +165,8 @@ internal sealed partial class GlomeEditorSession : IDisposable
         var views = toolbar;
         panel.AddChild(views);
         views.AddChild(spaces);
-        spaces.ItemSelected += index => SelectSpace(spaceNodes[(int)index]);
-        mode.ItemSelected += _ => RequestBake();
+        Listen(spaces, OptionButton.SignalName.ItemSelected, Callable.From<long>(index => SelectSpace(spaceNodes[(int)index])));
+        Listen(mode, OptionButton.SignalName.ItemSelected, Callable.From<long>(_ => RequestBake()));
         GlomeEditorViews.Changed += RefreshViews;
         views.AddChild(mode);
         _image = new TextureRect
@@ -167,44 +181,21 @@ internal sealed partial class GlomeEditorSession : IDisposable
         panel.AddChild(_image);
         _image.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
         _image.FocusMode = Control.FocusModeEnum.Click;
-        _image.GuiInput += Look;
-        _image.Connect(Control.SignalName.FocusExited, new Callable(plugin, nameof(plugin.PreviewStopFly)));
+        Listen(_image, Control.SignalName.GuiInput, Callable.From<InputEvent>(Look));
+        Listen(_image, Control.SignalName.FocusExited, new Callable(plugin, nameof(plugin.PreviewStopFly)));
         _image.AddChild(overlay);
         overlay.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        overlay.Draw += DrawOverlay;
-        EditorInterface.Singleton.GetSelection().Connect("selection_changed", new Callable(plugin, nameof(plugin.PreviewSelectionChanged)));
+        Listen(overlay, CanvasItem.SignalName.Draw, Callable.From(DrawOverlay));
+        Listen(EditorInterface.Singleton.GetSelection(), "selection_changed", new Callable(plugin, nameof(plugin.PreviewSelectionChanged)));
         _status = new Label { ClipText = true };
-        void Button(Container parent, string title, Action action)
-        {
-            var button = new Button { Text = title, SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin };
-            button.Pressed += action;
-            parent.AddChild(button);
-
-        }
-        Button(views, "Reset View", Spawn);
-        Button(views, "Focus (F)", FocusSelected);
-        Button(views, "From 3D", () =>
-        {
-            var camera = EditorInterface.Singleton.GetEditorViewport3D().GetCamera3D();
-            if (_bake == null || camera == null) return;
-            _view = FollowCamera(camera);
-            VirtualPivot();
-        });
-        Button(views, "Flip Antipode (180°)", () =>
-        {
-            if (_bake == null) return;
-            var opposite = _horizon.Travel(_horizon.Back, Math.PI);
-            var gaze = _pivot.Reject(opposite.P);
-            Aim(opposite, gaze.Length > 1e-9 ? gaze.Unit() : -opposite.Back);
-            UpdateDistance();
-        });
-        Button(views, "Rebake", () => RequestBake());
+        AddNavigation(views);
+        AddAuthoringTools(views);
         AddBookmarks(views);
         panel.AddChild(_status);
         SelectionChanged();
-        plugin.GetUndoRedo().Connect("version_changed", new Callable(plugin, nameof(plugin.PreviewRequestBake)));
-        RenderingServer.Singleton.Connect("frame_post_draw", new Callable(plugin, nameof(plugin.PreviewFramePresented)));
-        plugin.Connect("scene_changed", new Callable(plugin, nameof(plugin.PreviewSceneSwitched)));
+        Listen(plugin.GetUndoRedo(), "version_changed", new Callable(plugin, nameof(plugin.PreviewRequestBake)));
+        Listen(RenderingServer.Singleton, "frame_post_draw", new Callable(plugin, nameof(plugin.PreviewFramePresented)));
+        Listen(plugin, "scene_changed", new Callable(plugin, nameof(plugin.PreviewSceneSwitched)));
         SceneSwitched(plugin.GetTree().EditedSceneRoot);
     }
 
@@ -225,7 +216,8 @@ internal sealed partial class GlomeEditorSession : IDisposable
         if (_bake is null || _space is null) return false;
         CancelDrag();
         StopFly();
-        _view = view;
+        _focus = null;
+        SetExact(view);
         if (pivot is { } point) _pivot = point;
         else VirtualPivot();
         UpdateDistance();
@@ -248,7 +240,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
 
     internal void SceneSwitched(Node? root)
     {
-        if (_space != null) _space.BakeInvalidated -= MarkDirty;
+        if (GodotObject.IsInstanceValid(_space)) _space!.BakeInvalidated -= MarkDirty;
         ReleaseScene();
         StopFly();
         sceneKey = root?.SceneFilePath ?? "";
@@ -279,11 +271,15 @@ internal sealed partial class GlomeEditorSession : IDisposable
 
     private void SelectSpace(S3Space3D? space)
     {
-        if (_space != null) _space.BakeInvalidated -= MarkDirty;
+        if (GodotObject.IsInstanceValid(_space)) _space!.BakeInvalidated -= MarkDirty;
         ReleaseScene();
         CancelDrag();
         _space = space;
-        if (space != null) space.BakeInvalidated += MarkDirty;
+        if (space != null)
+        {
+            spaces.Selected = Array.IndexOf(spaceNodes, space);
+            space.BakeInvalidated += MarkDirty;
+        }
         SelectionChanged();
         RefreshViews();
         Message(space != null ? "Preparing preview…" : "Open a scene containing an S3Space3D.");
@@ -297,34 +293,60 @@ internal sealed partial class GlomeEditorSession : IDisposable
         foreach (var provider in providers) mode.AddItem(provider.DisplayName);
         if (providers.Length > 0) SelectView(id);
         CancelDrag();
-        _needsBake = _space != null;
+        MarkDirty();
     }
 
     private void SelectView(string id)
     {
         int index = Array.FindIndex(providers, p => p.Id == id);
         mode.Selected = Math.Max(0, index);
-        _needsBake = true;
+        MarkDirty();
     }
 
-    private void MarkDirty() => _needsBake = true;
+    private void MarkDirty()
+    {
+        _needsBake = _space != null;
+        _quietTime = 0;
+        _bakeCancellation?.Cancel();
+    }
 
     internal bool RequestBake()
     {
         RefreshSpaces(plugin.GetTree().EditedSceneRoot);
         CancelDrag();
-        _needsBake = _space != null;
+        MarkDirty();
         return _needsBake;
     }
 
-    private void Bake()
+    private void UpdateBake(double delta)
     {
-        dirty = true;
+        if (_needsBake) _quietTime += delta;
+        if (_baking is { IsCompleted: true } finished)
+        {
+            _baking = null;
+            bool stale = _bakeCancellation!.IsCancellationRequested;
+            _bakeCancellation.Dispose();
+            _bakeCancellation = null;
+            try
+            {
+                var view = finished.GetAwaiter().GetResult();
+                if (!stale) PresentBake(view);
+            }
+            catch (OperationCanceledException) { }
+        }
+        if (_baking != null || !_needsBake || _quietTime < 0.16) return;
         _needsBake = false;
         if (RenderingServer.GetRenderingDevice() is null) { Message("Vulkan rendering is required."); return; }
+        _bakeCancellation = new();
+        _baking = Provider.BakeAsync(_space!, _bakeCancellation.Token);
+    }
+
+    private void PresentBake(GlomeEditorView data)
+    {
+        dirty = true;
         bool initial = _bake == null;
-        var data = Provider.Bake(_space!);
-        _charts = GlomeChart.Descendants(_space!).OfType<S3Anchor3D>().Where(a => a.EditorChartRadius > 0).ToArray();
+        _activeProvider = Provider;
+        CacheAnchors(data.Snapshot.Geometry.Radius);
         _image.Texture = null;
         _renderer?.Dispose();
         outputSize = Provider.Resolution(TargetSize());
@@ -334,6 +356,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         viewData = data;
         _bake = data.Snapshot;
         lens = Math.Clamp(_space!.CurrentCamera()?.Fov ?? (float)GlomeComputeRenderer.VerticalFov, 1, 179);
+        RefreshSelectionExtent();
         if (initial) Spawn();
         if (pending.Remove(sceneKey, out var saved)) Restore(saved);
         Message("");
@@ -345,7 +368,8 @@ internal sealed partial class GlomeEditorSession : IDisposable
         var flat = ChartCamera.FromUnfolded(_space!.GlobalTransform.AffineInverse() * world, _bake!.Geometry.Radius);
         foreach (var anchor in _charts)
         {
-            if (!GodotObject.IsInstanceValid(anchor) || !anchor.IsInsideTree()) continue;
+            if (!GodotObject.IsInstanceValid(anchor) || anchor.EditorChartRadius <= 0) continue;
+            if (!anchor.IsInsideTree()) continue;
             Transform3D local = anchor.GlobalTransform.AffineInverse() * world;
             float weight = 1 - Mathf.SmoothStep(anchor.EditorChartRadius, anchor.EditorChartRadius + 5, local.Origin.Length());
             if (weight <= 0) continue;
@@ -365,17 +389,18 @@ internal sealed partial class GlomeEditorSession : IDisposable
         {
             _time += delta;
             var elapsed = delta;
-            if (_needsBake || (_bake is not null && _bake.Geometry.Radius != _space.Radius)) Bake();
+            UpdateBake(delta);
             if (_renderer is null || _bake is null) return;
             if (_renderer.Notices.TryDequeue(out var notice)) throw new InvalidOperationException(notice.Message);
+            AdvanceFocus(delta);
             if (flying)
             {
-                int Axis(Key pos, Key neg) => (Input.IsPhysicalKeyPressed(pos) ? 1 : 0) - (Input.IsPhysicalKeyPressed(neg) ? 1 : 0);
+                int Axis(Key pos, Key neg) => (_flyKeys.Contains(pos) ? 1 : 0) - (_flyKeys.Contains(neg) ? 1 : 0);
                 var direction = _view.Local(Axis(Key.D, Key.A), Axis(Key.E, Key.Q), Axis(Key.S, Key.W));
                 if (direction.Length > 0)
                 {
                     var transported = _horizon.Travel(direction.Unit(), speed * elapsed / _bake.Geometry.Radius *
-                        (Input.IsKeyPressed(Key.Shift) ? 2.5 : 1));
+                        (_flyFast ? 2.5 : 1));
                     Aim(transported, -transported.Pitch(_pitch).Back);
                 }
             }
@@ -383,10 +408,10 @@ internal sealed partial class GlomeEditorSession : IDisposable
             var view = _view;
             var moving = view != submitted;
             UpdateResolution(delta);
-            if (!dirty && !moving && !Provider.Animated) return;
+            if (!dirty && !moving && !_activeProvider!.Animated) return;
             dirty = false;
             submitted = view;
-            Message($"{(Antipodal ? "Antipode | Press F to Focus | " : "")}{selected?.Name.ToString() ?? "—"} | {_pivotDist:0.00} m | {_pivotDist / _bake.Geometry.Radius * 180 / Math.PI:0.0}° | {speed:0} m/s | RMB + WASD/QE");
+            UpdateHud();
             int pipeline = viewData!.PrepareFrame?.Invoke(_renderer, view, (float)_time) ?? 0;
             _renderer.Draw(view, _bake.Geometry.Radius, _bake.Geometry.Nodes.Length, (float)_time,
                 pipeline: pipeline, verticalFov: lens);
@@ -409,50 +434,33 @@ internal sealed partial class GlomeEditorSession : IDisposable
         overlay.QueueRedraw();
     }
 
-    private S3Anchor3D? Selected => EditorInterface.Singleton.GetSelection().GetSelectedNodes().OfType<S3Anchor3D>()
-        .FirstOrDefault(anchor => GlomeChart.SpaceOf(anchor) == _space);
-    private void Spawn()
-    {
-        if (_bake == null) return;
-        _view = viewData!.InitialView;
-        VirtualPivot();
-    }
-    private void FocusSelected()
-    {
-        if (Selected is { } anchor) FocusNode(anchor);
-    }
-
-    public bool FocusNode(Node3D node)
-    {
-        if (_bake is null || GlomeChart.SpaceOf(node) != _space) return false;
-        double radius = _bake.Geometry.Radius;
-        var (frame, transform) = node is S3Anchor3D anchor ? anchor.ChartPose(radius) : GlomeChart.InheritedPose(node, radius);
-        var pivot = ChartCamera.FromTangent(frame, transform, radius);
-        var offset = (pivot.Back * 4.5 + pivot.Up * 1.8).Unit();
-        return SetView(pivot.Travel(offset, Math.Sqrt(4.5 * 4.5 + 1.8 * 1.8) / radius).Pitch(-Math.Atan2(1.8, 4.5)), pivot.P);
-    }
     public void Visible(bool visible)
     {
         panel.Visible = visible;
-        if (!visible) { StopFly(); CancelDrag(); }
+        if (!visible) { StopFly(); CancelDrag(); _focus = null; }
     }
     public void StopFly()
     {
         if (flying) Input.MouseMode = Input.MouseModeEnum.Visible;
         flying = false;
+        _flyKeys.Clear();
+        _flyFast = false;
     }
     private void Look(InputEvent input)
     {
-        if (input is InputEventKey { Pressed: true } key)
+        if (input is InputEventKey key)
         {
-            if (key.Keycode == Key.Escape) { StopFly(); CancelDrag(); }
-            if (key.Keycode == Key.F && !key.Echo && !key.CtrlPressed && !key.AltPressed && !key.MetaPressed && !key.ShiftPressed && _image.HasFocus() && _bake != null && Selected != null)
+            if (flying && key.Keycode != Key.Escape)
             {
-                FocusSelected();
-                _image.AcceptEvent();
+                var code = key.PhysicalKeycode == Key.None ? key.Keycode : key.PhysicalKeycode;
+                _flyFast = key.ShiftPressed;
+                if (key.Pressed) _flyKeys.Add(code); else _flyKeys.Remove(code);
+                if (code is Key.W or Key.A or Key.S or Key.D or Key.Q or Key.E or Key.Shift) _image.AcceptEvent();
             }
+            else if (key.Pressed && HandleShortcut(key)) _image.AcceptEvent();
             return;
         }
+        if (input is InputEventMouseButton { Pressed: true }) _focus = null;
         if (DragInput(input)) return;
         if (input is InputEventMouseMotion motion && _bake != null)
         {
@@ -469,6 +477,13 @@ internal sealed partial class GlomeEditorSession : IDisposable
         }
         if (input is not InputEventMouseButton button || _bake == null) return;
         if (!button.Pressed) { if (button.ButtonIndex == MouseButton.Right) StopFly(); return; }
+        if (flying && button.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
+        {
+            double ticks = (button.ButtonIndex == MouseButton.WheelUp ? 1 : -1) * button.Factor;
+            SetSpeed(speed * Math.Pow(1.18, ticks));
+            _image.AcceptEvent();
+            return;
+        }
         var size = ImageSize;
         var uv = (button.Position - (_image.Size - size) / 2) / size;
         if (uv.X < 0 || uv.X >= 1 || uv.Y < 0 || uv.Y >= 1) return;
@@ -486,9 +501,8 @@ internal sealed partial class GlomeEditorSession : IDisposable
             _image.AcceptEvent();
             return;
         }
-        if (button.ButtonIndex == MouseButton.WheelUp) speed = Math.Min(32, speed * 1.25);
-        if (button.ButtonIndex == MouseButton.WheelDown) speed = Math.Max(2, speed / 1.25);
         if (button.ButtonIndex != MouseButton.Left) return;
+        if (PickAnchorPin(button.Position)) { _image.AcceptEvent(); return; }
         var tan = Math.Tan(double.DegreesToRadians(displayedFov) / 2);
         var x = (2 * (Math.Floor(uv.X * displayedSize.X) + .5) / displayedSize.X - 1) * tan * displayedSize.X / displayedSize.Y;
         var y = (1 - 2 * (Math.Floor(uv.Y * displayedSize.Y) + .5) / displayedSize.Y) * tan;
@@ -521,6 +535,13 @@ internal sealed partial class GlomeEditorSession : IDisposable
 
     private void ReleaseScene()
     {
+        _bakeCancellation?.Cancel();
+        _bakeCancellation?.Dispose();
+        _bakeCancellation = null;
+        if (_baking != null)
+            _ = _baking.ContinueWith(static t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+        _baking = null;
+        _activeProvider = null;
         _image.Texture = null;
         _renderer?.Dispose();
         _renderer = null;
@@ -529,6 +550,11 @@ internal sealed partial class GlomeEditorSession : IDisposable
         viewData = null;
         awaitingPresentation = null;
         _charts = [];
+        _pins = [];
+        selected = null;
+        _focus = null;
+        _hud.Visible = false;
+        overlay.QueueRedraw();
         dirty = true;
         _needsBake = false;
     }
@@ -537,16 +563,14 @@ internal sealed partial class GlomeEditorSession : IDisposable
     {
         if (disposed) return;
         disposed = true;
-        if (_space != null) _space.BakeInvalidated -= MarkDirty;
+        if (GodotObject.IsInstanceValid(_space)) _space!.BakeInvalidated -= MarkDirty;
         GlomeEditorViews.Changed -= RefreshViews;
         StopFly();
-        EditorInterface.Singleton.GetSelection().Disconnect("selection_changed", new Callable(plugin, nameof(plugin.PreviewSelectionChanged)));
-        RenderingServer.Singleton.Disconnect("frame_post_draw", new Callable(plugin, nameof(plugin.PreviewFramePresented)));
-        plugin.Disconnect("scene_changed", new Callable(plugin, nameof(plugin.PreviewSceneSwitched)));
-        plugin.GetUndoRedo().Disconnect("version_changed", new Callable(plugin, nameof(plugin.PreviewRequestBake)));
+        foreach (var (source, signal, target) in _signals)
+            if (GodotObject.IsInstanceValid(source) && source.IsConnected(signal, target)) source.Disconnect(signal, target);
+        _signals.Clear();
         ReleaseScene();
         RenderingServer.ForceSync();
-        _image.Disconnect(Control.SignalName.FocusExited, new Callable(plugin, nameof(plugin.PreviewStopFly)));
         panel.Free();
     }
 }

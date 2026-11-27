@@ -98,8 +98,41 @@ internal sealed class GlomeDebugBridge(string directory, string target, string l
 
     private static string TemporaryPath(string path) => $"{path}.{Guid.NewGuid():N}.tmp";
 
-    private static void WriteJson(string path, object data) =>
-        WriteAtomic(path, JsonSerializer.SerializeToUtf8Bytes(data));
+    private static void WriteJson(string path, object data)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream)) WriteValue(writer, data);
+        WriteAtomic(path, stream.ToArray());
+    }
+
+    private static void WriteValue(Utf8JsonWriter writer, object? value)
+    {
+        switch (value)
+        {
+            case null: writer.WriteNullValue(); break;
+            case string text: writer.WriteStringValue(text); break;
+            case DateTimeOffset time: writer.WriteStringValue(time); break;
+            case bool flag: writer.WriteBooleanValue(flag); break;
+            case int number: writer.WriteNumberValue(number); break;
+            case float number: writer.WriteNumberValue(number); break;
+            case double number: writer.WriteNumberValue(number); break;
+            case Dictionary<string, object?> properties:
+                writer.WriteStartObject();
+                foreach (var (name, item) in properties)
+                {
+                    writer.WritePropertyName(name);
+                    WriteValue(writer, item);
+                }
+                writer.WriteEndObject();
+                break;
+            case Array items:
+                writer.WriteStartArray();
+                foreach (var item in items) WriteValue(writer, item);
+                writer.WriteEndArray();
+                break;
+            default: throw new ArgumentException($"Unsupported bridge value {value.GetType().Name}.");
+        }
+    }
 
     private static void WriteAtomic(string path, byte[] data)
     {

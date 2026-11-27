@@ -30,12 +30,19 @@ func frames(count: int = 6) -> void:
 		EditorInterface.get_base_control().queue_redraw()
 		await RenderingServer.frame_post_draw
 
+func settle(min_ms: int = 300) -> void:
+	var start := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - start < min_ms or (preview != null and preview.texture == null and Time.get_ticks_msec() - start < 5000):
+		EditorInterface.get_base_control().queue_redraw()
+		await RenderingServer.frame_post_draw
+	await frames(6)
+
 func choose_view(title: String) -> Image:
 	for i in mode.item_count:
 		if mode.get_item_text(i) == title:
 			mode.select(i)
 			mode.item_selected.emit(i)
-			await frames()
+			await settle()
 			if not check(preview.texture != null, "No output for " + title):
 				return null
 			# Read the actual editor viewport. Texture2DRD is a storage image.
@@ -72,7 +79,7 @@ func run() -> void:
 	get_window().mode = Window.MODE_WINDOWED
 	get_window().size = Vector2i(1920, 1080)
 	get_window().content_scale_factor = minf(1, 1.35 / EditorInterface.get_editor_scale())
-	await frames()
+	await settle()
 	mode = main_screen.find_child("ViewMode", true, false)
 	preview = main_screen.find_child("Preview", true, false)
 	var lit := await choose_view("StandardLit")
@@ -131,17 +138,17 @@ func check_bookmarks() -> void:
 	await choose_view("ClayClean")
 	menu.about_to_popup.emit()
 	menu.get_popup().id_pressed.emit(3)
-	await frames()
+	await settle()
 	if not check(mode.get_item_text(mode.selected) == "Material Swatch", "restore bookmarked provider"): return
 	bridge.UnregisterView()
 	menu.get_popup().id_pressed.emit(3)
-	await frames()
+	await settle()
 	if not check(mode.get_item_text(mode.selected) == "StandardLit", "missing provider fallback"): return
 	bridge.RestoreLegacy(1)
-	await frames()
+	await settle()
 	if not check(mode.get_item_text(mode.selected) == "ClayClean", "legacy mode without extension"): return
 	bridge.RestoreState()
-	await frames()
+	await settle()
 	print("Editor bookmarks: stable provider ID, unregister/reload, missing provider and legacy index passed.")
 
 func check_authored(space: Node) -> void:
@@ -188,14 +195,14 @@ func check_authored(space: Node) -> void:
 	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
 	preview.gui_input.emit(motion)
 	mouse_button(end, false)
-	await frames()
+	await settle()
 	var spin: PackedFloat64Array = target.RelativeSpin
 	if not check(spin.size() == 8 and history.get_current_action_name() == "Move S³ anchor", "RelativeSpin gizmo drag"): return
 	history.undo()
-	await frames()
+	await settle()
 	if not check(target.RelativeSpin.is_empty(), "drag undo"): return
 	history.redo()
-	await frames()
+	await settle()
 	if not check(target.RelativeSpin == spin, "drag redo"): return
 	var means := [probe.VertexMean(space, target), probe.VertexMean(space, nested), probe.VertexMean(space, absolute)]
 
@@ -203,20 +210,20 @@ func check_authored(space: Node) -> void:
 	var radius := radius_property(inspector)
 	if not check(radius != null, "native Radius property"): return
 	radius.emit_changed(&"Radius", 25.0)
-	await frames()
+	await settle()
 	var units_preserved: bool = (target.ArcMetres == 4 and nested.transform == initial_nested
 			and absolute.LocalOffset == old_offset and target.RelativeSpin == spin
 			and Vector2(absolute.BearingDegrees, absolute.PolarDegrees) == angles)
 	if not check(space.Radius == 25 and units_preserved, "unit-preserving radius edit"): return
 	history.undo()
-	await frames()
+	await settle()
 	if not check(space.Radius == 14, "radius undo"): return
 	var scale_to: SpinBox = inspector.find_child("ScaleToRadius", true, false)
 	if not check(scale_to != null, "scale inspector"): return
 	scale_to.value = 25
 	for button in inspector.find_children("*", "Button", true, false):
 		if button.text == "Scale Entire Scene": button.pressed.emit()
-	await frames()
+	await settle()
 	var k := 25.0 / 14
 	var scaled_basis := Basis.IDENTITY.scaled(Vector3.ONE * k)
 	for pass_index in 2:
@@ -236,19 +243,27 @@ func check_authored(space: Node) -> void:
 		for i in owners.size():
 			if not check(means[i].distance_to(probe.VertexMean(space, owners[i])) < 0.000001, "normalized baked geometry preserved after scale"): return
 		history.undo()
-		await frames()
+		await settle()
 		var restored: bool = (space.Radius == 14 and target.ArcMetres == 4 and target.transform == Transform3D.IDENTITY
 				and absolute.LocalOffset == old_offset and nested.transform == initial_nested and is_equal_approx(walker.EyeHeight, eye_height))
 		if not check(restored, "scale undo restores authored units"): return
 		if pass_index == 0:
 			history.redo()
-			await frames()
+			await settle()
 	history.undo() # Restore the original, unspun placement for the runtime comparison.
-	await frames()
+	await settle()
 	if not check(target.RelativeSpin.is_empty(), "return to authored pose"): return
 	inspector = await live_inspector(absolute)
 	var hint: Label = inspector.find_child("ChartDistortion", true, false)
-	if not check(hint != null and "4.67 m" in hint.text and "18.4°" in hint.text and "10.0%" in hint.text and "second anchor" in hint.text, "exact transformed-vertex distortion readout"): return
+	if not check(hint != null and "4.67 m" in hint.text and "18.4°" in hint.text and "10.0%" in hint.text, "exact transformed-vertex distortion readout"): return
+	var saved_offset: Vector3 = absolute.LocalOffset
+	absolute.LocalOffset = saved_offset + Vector3(0, 0.25, 0)
+	await live_inspector(space)
+	inspector = await live_inspector(absolute)
+	hint = inspector.find_child("ChartDistortion", true, false)
+	if not check(hint != null and "4.82 m" in hint.text and "19.0°" in hint.text and "10.6%" in hint.text and "second anchor" in hint.text, "over-threshold distortion hint"): return
+	absolute.LocalOffset = saved_offset
+	await settle()
 	print("Editor pick, drag, undo/redo, 14 -> 25 m, scale undo/redo; ", hint.text.replace("\n", ", "))
 	inspector = await live_inspector(space)
 	var distances: Label = inspector.find_child("RadiusDistances", true, false)
