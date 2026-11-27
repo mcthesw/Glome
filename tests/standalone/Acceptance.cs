@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Glome;
 using Glome.Core;
@@ -180,7 +181,17 @@ public partial class Acceptance : Node
         var hit = bake.Geometry.Trace(new(view.P, -view.Back));
         Check(hit.Kind == HitKind.Triangle, "center ray reaches authored box");
         if (Engine.IsEditorHint())
+        {
             Check(bake.TriangleOwners![hit.Triangle] == space.GetNode("Target"), "presented pick owner");
+            var sources = bake.AuthoringSources!;
+            Check(sources.TriangleSources.Length == bake.Geometry.Triangles.Length &&
+                  sources.Meshes[sources.TriangleSources[hit.Triangle]] == space.GetNode("Target/Block"),
+                  "presented BVH triangle maps to its authored mesh");
+        }
+        else
+        {
+            Check(bake.AuthoringSources == null && bake.TriangleOwners == null, "runtime omits authoring references");
+        }
         return [view.P.X, view.P.Y, view.P.Z, view.P.W, hit.T, hit.Uv.X, hit.Uv.Y];
     }
 
@@ -204,6 +215,7 @@ public partial class Acceptance : Node
     private async Task CheckAuthored(S3Space3D space)
     {
         var before = Measure(space);
+        CheckLightTable(space);
         var saved = new ConfigFile();
         Check(saved.Load(OS.GetEnvironment("GLOME_EDITOR_REFERENCE")) == Error.Ok, "editor measurement");
         var reference = saved.GetValue("frame", "sample").AsFloat64Array();
@@ -217,6 +229,31 @@ public partial class Acceptance : Node
         Check(Math.Abs(travelled - expected) < 0.002, "box contact at authored arc placement");
         await Frames(3);
         GD.Print($"Authored agreement: max delta {error:E2}, box contact {travelled:F4} m (expected {expected:F4} m).");
+    }
+
+    private static void CheckLightTable(S3Space3D space)
+    {
+        var bake = space.LastBake!;
+        var entries = bake.LightSources.Select((source, i) =>
+        {
+            var light = space.GetNode<Light3D>(source.Path);
+            Check(light.GetInstanceId() == source.Id, "light source path and instance ID agree");
+            return (source.Id, Light: bake.Lights[i]);
+        }).Reverse().ToArray();
+        var table = new GlomeLightTable<ulong>(entries);
+        byte[] bytes = table.Pack();
+        var sun = space.GetNode<DirectionalLight3D>("Sun");
+        var lamp = space.GetNode<OmniLight3D>("Target/Nested/Lamp");
+        Check(table.Counts == new Vector4I(0, 1, 1, 0) &&
+              MemoryMarshal.Read<Vector4I>(bytes) == table.Counts && bytes.Length == 16 + 2 * 32,
+              "packed shadowed sun and omni group counts");
+        Check(table[sun.GetInstanceId()] == 0 && table[lamp.GetInstanceId()] == 1, "grouped update slots");
+        foreach (var (id, light) in entries)
+        {
+            var record = MemoryMarshal.Read<LightRecord>(bytes.AsSpan(16 + table[id] * 32));
+            Check(record.Source == light.Record.Source && record.RadianceCutoff == light.Record.RadianceCutoff,
+                  "update slot addresses its native light record");
+        }
     }
 
     private async Task CheckFloorless()

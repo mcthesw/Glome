@@ -1,0 +1,13 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://addons/glome/Runtime/S3Anchor3D.cs" id="anchor"]
+
+[sub_resource type="BoxMesh" id="tile"]
+size = Vector3(1, 0.5, 1)
+
+[node name="Tile" type="Node3D"]
+script = ExtResource("anchor")
+
+[node name="Face" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.25, 0)
+mesh = SubResource("tile")
