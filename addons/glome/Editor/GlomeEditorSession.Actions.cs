@@ -21,7 +21,7 @@ internal sealed partial class GlomeEditorSession
         {
             var root = plugin.GetTree().EditedSceneRoot;
             popup.SetItemDisabled(0, _bake == null || _space == null || (_space != root && _space.Owner != root));
-            for (int i = 1; i <= 3; i++) popup.SetItemDisabled(i, !Editable);
+            for (int i = 1; i <= 3; i++) popup.SetItemDisabled(i, !Editable || selected is not S3Anchor3D);
         }));
         Listen(popup, PopupMenu.SignalName.IdPressed, Callable.From<long>(id =>
         {
@@ -34,7 +34,7 @@ internal sealed partial class GlomeEditorSession
                     RelativeSpin = S3ChartMath.Encode(here) };
                 InsertAnchor("New S³ anchor here", _space, node, [node]);
             }
-            else if (Editable && selected is { } anchor)
+            else if (Editable && selected is S3Anchor3D anchor)
             {
                 if (id == 1)
                 {
@@ -83,19 +83,7 @@ internal sealed partial class GlomeEditorSession
 
     private void InsertAnchor(string title, Node parent, S3Anchor3D node, List<Node> owned)
     {
-        var root = plugin.GetTree().EditedSceneRoot;
-        var selection = EditorInterface.Singleton.GetSelection();
-        var undo = plugin.GetUndoRedo();
-        undo.CreateAction(title, customContext: root);
-        undo.AddDoMethod(parent, Node.MethodName.AddChild, node, true);
-        undo.AddDoReference(node);
-        foreach (var child in owned) undo.AddDoProperty(child, Node.PropertyName.Owner, root);
-        undo.AddDoMethod(selection, EditorSelection.MethodName.Clear);
-        undo.AddDoMethod(selection, EditorSelection.MethodName.AddNode, node);
-        undo.AddUndoMethod(selection, EditorSelection.MethodName.Clear);
-        undo.AddUndoMethod(parent, Node.MethodName.RemoveChild, node);
-        foreach (var old in selection.GetSelectedNodes()) undo.AddUndoMethod(selection, EditorSelection.MethodName.AddNode, old);
-        FinishAction(undo);
+        Insert(title, [new(parent, node, owned)]);
     }
 
     private void CommitSpin(string title, S3Anchor3D anchor, S3Frame delta)

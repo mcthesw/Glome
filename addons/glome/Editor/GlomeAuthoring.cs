@@ -25,18 +25,18 @@ internal static class GlomeAuthoring
         return null;
     }
 
-    internal static S3Frame Pivot(S3Anchor3D anchor, double radius)
+    internal static S3Frame Pivot(Node3D node, double radius)
     {
-        var (frame, transform) = anchor.ChartPose(radius);
+        var (frame, transform) = GlomeNodeEditing.Pose(node, radius);
         if (Mathf.IsZeroApprox(transform.Basis.Determinant())) transform.Basis = Basis.Identity;
         return ChartCamera.FromTangent(frame, transform, radius);
     }
 
-    internal static Extent Measure(S3Anchor3D anchor, double radius)
+    internal static Extent Measure(Node3D root, double radius)
     {
-        var (_, transform) = anchor.ChartPose(radius);
+        var (_, transform) = GlomeNodeEditing.Pose(root, radius);
         double chartSquared = 0, pivotSquared = 0;
-        GlomeChart.Walk(anchor, transform, (node, pose) =>
+        void Inspect(Node node, Transform3D pose)
         {
             if (node is not MeshInstance3D { Mesh: { } mesh }) return;
             for (int i = 0; i < mesh.GetSurfaceCount(); i++)
@@ -49,7 +49,9 @@ internal static class GlomeAuthoring
                     pivotSquared = Math.Max(pivotSquared, point.DistanceSquaredTo(transform.Origin));
                 }
             }
-        });
+        }
+        Inspect(root, transform);
+        GlomeChart.Walk(root, transform, Inspect);
         return new(Math.Sqrt(chartSquared), Math.Sqrt(pivotSquared));
     }
 

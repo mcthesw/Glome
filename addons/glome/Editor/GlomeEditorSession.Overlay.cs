@@ -10,14 +10,14 @@ namespace Glome.Editor;
 
 internal sealed partial class GlomeEditorSession
 {
-    private enum GizmoTool { Select, Move, Rotate }
+    private enum GizmoTool { Select, Move, Rotate, Scale }
     private GizmoTool _tool;
     private readonly Dictionary<GizmoTool, Button> _toolButtons = [];
     private Button _snap = null!, _showPins = null!, _showBounds = null!;
     private readonly VBoxContainer _hud = new() { MouseFilter = Control.MouseFilterEnum.Ignore };
     private readonly Label _location = HudLabel(), _distortion = HudLabel(), _delta = HudLabel();
     private (S3Anchor3D Node, S3Frame Pose)[] _pins = [];
-    private List<(D4, D4)> _bounds = [];
+    private GlomeWireframe? _bounds;
     private GlomeAuthoring.Extent _extent;
     private double _arcDelta, _angleDelta;
 
@@ -32,7 +32,7 @@ internal sealed partial class GlomeEditorSession
     {
         foreach (var tool in Enum.GetValues<GizmoTool>())
         {
-            string binding = tool switch { GizmoTool.Select => "Q", GizmoTool.Move => "W", _ => "E" };
+            string binding = tool switch { GizmoTool.Select => "Q", GizmoTool.Move => "W", GizmoTool.Rotate => "E", _ => "R" };
             _toolButtons.Add(tool, Tool(bar, tool.ToString(), $"{tool} ({binding})", () => SetTool(tool), true));
         }
         SetTool(GizmoTool.Move);
@@ -44,6 +44,8 @@ internal sealed partial class GlomeEditorSession
             RefreshBounds();
             overlay.QueueRedraw();
         }, true);
+        _collisionOverlay = Tool(bar, "Collision", "Selected collision shapes and walkable tops", overlay.QueueRedraw, true);
+        _deviceOverlay = Tool(bar, "Lights & Cameras", "Pick lights and cameras and inspect their volumes", overlay.QueueRedraw, true);
         AddAnchorMenu(bar);
         _image.AddChild(_hud);
         _hud.Position = new(10, 8);
@@ -64,6 +66,7 @@ internal sealed partial class GlomeEditorSession
     {
         _charts = GlomeChart.Descendants(_space!).OfType<S3Anchor3D>().ToArray();
         _pins = _charts.Select(a => (a, GlomeAuthoring.Pivot(a, radius))).ToArray();
+        _devices = GlomeChart.Descendants(_space!).OfType<Node3D>().Where(n => n is S3Camera3D or DirectionalLight3D or OmniLight3D).ToArray();
     }
 
     private void RefreshSelectionExtent()
@@ -75,7 +78,7 @@ internal sealed partial class GlomeEditorSession
     }
 
     private void RefreshBounds() => _bounds = _bake != null && GodotObject.IsInstanceValid(selected)
-        && _showBounds.ButtonPressed ? Wire(selected!) : [];
+        && _showBounds.ButtonPressed ? GlomeWireframe.Capture(selected!, _bake, bounds: true) : null;
 
     private void UpdateHud()
     {
@@ -87,10 +90,10 @@ internal sealed partial class GlomeEditorSession
         _distortion.Visible = valid;
         _delta.Visible = drag != null;
         if (!valid) { _location.Text = space; return; }
-        var pivot = drag?.Pivot ?? Pivot(selected!);
-        if (displacement is { } delta) pivot = S3ChartMath.Compose(delta, pivot);
+        var pivot = drag?.PreviewPivot ?? Pivot(selected!);
         double theta = pivot.P.AngleTo(D4.Pole);
-        _location.Text = $"{selected!.Name}  |  {selected.ChartPlacement}  |  d = {r * theta:0.0} m  |  θ = {double.RadiansToDegrees(theta):0.0}°\n{space}";
+        string placement = selected is S3Anchor3D anchor ? anchor.ChartPlacement.ToString() : selected!.GetClass().ToString();
+        _location.Text = $"{selected!.Name}  |  {placement}  |  d = {r * theta:0.0} m  |  θ = {double.RadiansToDegrees(theta):0.0}°\n{space}";
         bool warn = _extent.Distorted(r);
         _distortion.Modulate = warn ? Colors.Orange : Colors.White;
         _distortion.Text = $"Chart extent {_extent.ChartMetres:0.00} m  |  {_extent.Compression(r):0.0}% compression"
@@ -104,8 +107,7 @@ internal sealed partial class GlomeEditorSession
         foreach (var (anchor, cached) in _pins)
         {
             if (!GodotObject.IsInstanceValid(anchor) || !anchor.IsInsideTree()) continue;
-            var pose = anchor == selected && drag != null && displacement is { } move
-                ? S3ChartMath.Compose(move, drag.Pivot) : cached;
+            var pose = anchor == selected && drag != null ? drag.PreviewPivot : cached;
             if (!Project(pose.P, out var p)) continue;
             void Axis(D4 axis, Color color)
             {
@@ -138,10 +140,7 @@ internal sealed partial class GlomeEditorSession
             (hit, best, arc) = (node, pixels, distance);
         }
         if (hit == null) return false;
-        var selection = EditorInterface.Singleton.GetSelection();
-        selection.Clear();
-        selection.AddNode(hit);
-        EditorInterface.Singleton.InspectObject(hit);
+        SelectPicked(hit);
         _pivot = Pivot(hit).P;
         UpdateDistance();
         return true;

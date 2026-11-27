@@ -4,7 +4,7 @@ using Glome.Core;
 
 namespace Glome.Editor;
 
-internal enum GizmoHandle { Ground, X, Y, Z, Pitch, Yaw, Roll }
+internal enum GizmoHandle { Ground, XY, YZ, X, Y, Z, Pitch, Yaw, Roll, Range, Direction, Fov }
 
 internal readonly record struct GizmoPlane(D4 U, D4 V, D4 Normal)
 {
@@ -12,13 +12,13 @@ internal readonly record struct GizmoPlane(D4 U, D4 V, D4 Normal)
 
     internal static GizmoPlane For(S3Frame p, GizmoHandle handle, D4 eye)
     {
-        if (handle == GizmoHandle.Pitch) return new(p.Up, p.Back, p.Right);
-        if (handle == GizmoHandle.Roll) return new(p.Right, p.Up, p.Back);
+        if (handle is GizmoHandle.Pitch or GizmoHandle.YZ) return new(p.Up, p.Back, p.Right);
+        if (handle is GizmoHandle.Roll or GizmoHandle.XY) return new(p.Right, p.Up, p.Back);
         if (handle is GizmoHandle.Yaw or GizmoHandle.Ground) return new(p.Right, p.Back, p.Up);
 
         // The plane containing an axis and facing the viewer gives the largest
         // projected handle, even when the author works in a vertical chart.
-        var axis = handle switch { GizmoHandle.X => p.Right, GizmoHandle.Y => p.Up, _ => p.Back };
+        var axis = handle switch { GizmoHandle.X or GizmoHandle.Range => p.Right, GizmoHandle.Y or GizmoHandle.Fov => p.Up, _ => p.Back };
         var normal = eye.Reject(p.P).Reject(axis);
         if (normal.Length < 1e-9) normal = handle == GizmoHandle.Y ? p.Back : p.Up;
         normal = normal.Unit();

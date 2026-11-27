@@ -24,13 +24,15 @@ public partial class S3Camera3D : Node3D
 
     public S3Frame EyeFrame(double radius)
     {
-        if (GetParent() is not S3CharacterController controller) return GlomeChart.At(this, radius);
-        var eye = DrivenEye ?? controller.AuthoredEye(radius);
-        if (Transform == Transform3D.Identity) return eye;
-        // The controller supplies eye height. The camera can add a local mount and rotation.
+        var (frame, parent) = Mount(radius);
+        return ChartCamera.FromTangent(frame, parent * Transform, radius);
+    }
+
+    internal (S3Frame Frame, Transform3D Pose) Mount(double radius)
+    {
+        if (GetParent() is not S3CharacterController controller) return GlomeChart.ParentPose(GetParent(), radius);
         var basis = GlomeChart.InheritedPose(controller, radius).Pose.Basis;
-        var mount = new Transform3D(basis.Orthonormalized().Inverse() * basis, Vector3.Zero) * Transform;
-        return ChartCamera.FromTangent(eye, mount, radius);
+        return (DrivenEye ?? controller.AuthoredEye(radius), new(basis.Orthonormalized().Inverse() * basis, Vector3.Zero));
     }
 
     public override void _EnterTree() => GlomeChart.SpaceOf(this)?.CamerasChanged(this);

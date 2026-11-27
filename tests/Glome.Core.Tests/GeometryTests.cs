@@ -39,6 +39,18 @@ public sealed class GeometryTests
     }
 
     [TestMethod]
+    public void InverseCentralProjectionRecoversLocalMetresOnlyInTheForwardChart()
+    {
+        var chart = S3Frame.Identity.Travel(D4.Back, 1.2).Roll(0.7);
+        var metres = new D4(2.5, -1.3, 6, 0);
+        var point = S3ChartMath.CentralProjection(chart, Radius, chart.Local(metres.X, metres.Y, metres.Z), out _);
+        Assert.IsTrue(S3ChartMath.TryInverseCentralProjection(chart, Radius, point, out var local));
+        Assert.IsLessThan(1e-12, (local - metres).Length);
+        Assert.IsFalse(S3ChartMath.TryInverseCentralProjection(chart, Radius, chart.Right, out _));
+        Assert.IsFalse(S3ChartMath.TryInverseCentralProjection(chart, Radius, -point, out _));
+    }
+
+    [TestMethod]
     public void TriangleReturnsProjectedUvAndCapContainsItsInterior()
     {
         var triangle = Face(0, 3);

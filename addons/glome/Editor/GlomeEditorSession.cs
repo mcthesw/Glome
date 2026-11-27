@@ -171,8 +171,9 @@ internal sealed partial class GlomeEditorSession : IDisposable
         Listen(mode, OptionButton.SignalName.ItemSelected, Callable.From<long>(_ => ViewChanged()));
         GlomeEditorViews.Changed += RefreshViews;
         views.AddChild(mode);
-        _image = new TextureRect
+        _image = new GlomeDropViewport
         {
+            CanPlace = CanPlace, Place = Place,
             Name = "Preview",
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
@@ -543,30 +544,8 @@ internal sealed partial class GlomeEditorSession : IDisposable
             return;
         }
         if (button.ButtonIndex != MouseButton.Left) return;
-        if (PickAnchorPin(button.Position)) { _image.AcceptEvent(); return; }
-        var tan = Math.Tan(double.DegreesToRadians(displayedFov) / 2);
-        var x = (2 * (Math.Floor(uv.X * displayedSize.X) + .5) / displayedSize.X - 1) * tan * displayedSize.X / displayedSize.Y;
-        var y = (1 - 2 * (Math.Floor(uv.Y * displayedSize.Y) + .5) / displayedSize.Y) * tan;
-        if (displayedBake?.TriangleOwners is not { } displayedOwners) return;
-        var hit = displayedBake.Geometry.Trace(new(displayed.P, displayed.Local(x, y, -1).Unit()));
-        if (hit.Kind == HitKind.Triangle || hit.Kind == HitKind.Ground)
-            _pivot = new ArcRay(displayed.P, displayed.Local(x,y,-1).Unit()).At(hit.T);
-        else VirtualPivot();
-        UpdateDistance();
-        var selection = EditorInterface.Singleton.GetSelection();
-        syncingSelection = true;
-        try
-        {
-            selection.Clear();
-            if (hit.Kind == HitKind.Triangle && GodotObject.IsInstanceValid(displayedOwners[hit.Triangle]))
-            {
-                var picked = displayedOwners[hit.Triangle];
-                selection.AddNode(picked);
-                EditorInterface.Singleton.InspectObject(picked);
-            }
-        }
-        finally { syncingSelection = false; }
-        SelectionChanged();
+        Pick(button.Position);
+        _image.AcceptEvent();
     }
     private void Message(string message)
     {
@@ -599,6 +578,8 @@ internal sealed partial class GlomeEditorSession : IDisposable
         awaitingPresentation = null;
         _charts = [];
         _pins = [];
+        _devices = [];
+        _bounds = null;
         selected = null;
         _focus = null;
         _hud.Visible = false;
@@ -620,6 +601,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         _signals.Clear();
         ReleaseScene();
         RenderingServer.ForceSync();
+        if (_image is GlomeDropViewport drop) { drop.CanPlace = null; drop.Place = null; }
         panel.Free();
     }
 }

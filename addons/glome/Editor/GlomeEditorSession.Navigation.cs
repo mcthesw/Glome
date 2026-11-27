@@ -67,8 +67,9 @@ internal sealed partial class GlomeEditorSession
         _horizon = view.Pitch(-_pitch);
     }
 
-    private S3Anchor3D? Selected => EditorInterface.Singleton.GetSelection().GetSelectedNodes()
-        .Select(GlomeAuthoring.AnchorOf).FirstOrDefault(anchor => anchor != null && GlomeChart.SpaceOf(anchor) == _space);
+    private Node3D? Selected => EditorInterface.Singleton.GetSelection().GetSelectedNodes()
+        .Select(node => GlomeNodeEditing.EditableTarget(node, plugin.GetTree().EditedSceneRoot))
+        .FirstOrDefault(node => node != null && GlomeChart.SpaceOf(node) == _space);
 
     private void FocusSelected()
     {
@@ -93,9 +94,9 @@ internal sealed partial class GlomeEditorSession
     {
         if (_bake == null || GlomeChart.SpaceOf(node) != _space) return false;
         double r = _space!.Radius;
-        var anchor = GlomeAuthoring.AnchorOf(node);
-        var target = anchor != null ? GlomeAuthoring.Pivot(anchor, r) : GlomeChart.At(node, r);
-        double extent = anchor != null ? GlomeAuthoring.Measure(anchor, r).AroundPivot : 0;
+        node = GlomeNodeEditing.EditableTarget(node, plugin.GetTree().EditedSceneRoot) ?? node;
+        var target = GlomeAuthoring.Pivot(node, r);
+        double extent = GlomeAuthoring.Measure(node, r).AroundPivot;
         return SetView(GlomeAuthoring.Focus(target, r, extent, lens), target.P);
     }
 
@@ -109,14 +110,20 @@ internal sealed partial class GlomeEditorSession
             _focus = null;
             return handled;
         }
-        if (flying || !_image.HasFocus() || _bake == null || key.Echo ||
-            key.CtrlPressed || key.MetaPressed || key.AltPressed || key.ShiftPressed) return false;
+        if (flying || !_image.HasFocus() || _bake == null || key.Echo || key.AltPressed || key.ShiftPressed) return false;
+        if (key.CtrlPressed || key.MetaPressed)
+        {
+            if (key.Keycode != Key.D || !Editable || drag != null) return false;
+            Insert("Duplicate S³ node", [GlomeScenePlacement.Duplicate(selected!, plugin.GetTree().EditedSceneRoot)]);
+            return true;
+        }
         switch (key.Keycode)
         {
             case Key.F: FocusSelected(); return true;
             case Key.Q: SetTool(GizmoTool.Select); return true;
             case Key.W: SetTool(GizmoTool.Move); return true;
             case Key.E: SetTool(GizmoTool.Rotate); return true;
+            case Key.R: SetTool(GizmoTool.Scale); return true;
             default: return false;
         }
     }

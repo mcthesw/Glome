@@ -28,8 +28,14 @@ public static class GlomeChart
 
     internal static (S3Frame Frame, Transform3D Pose) InheritedPose(Node3D node, double radius)
     {
-        var pose = node.Transform;
-        for (Node? parent = node.GetParent(); parent is not null && parent is not S3Space3D and not Viewport; parent = parent.GetParent())
+        var (frame, parent) = ParentPose(node.GetParent(), radius);
+        return (frame, parent * node.Transform);
+    }
+
+    internal static (S3Frame Frame, Transform3D Pose) ParentPose(Node? parent, double radius)
+    {
+        var pose = Transform3D.Identity;
+        for (; parent is not null && parent is not S3Space3D and not Viewport; parent = parent.GetParent())
         {
             if (parent is S3Anchor3D anchor)
             {

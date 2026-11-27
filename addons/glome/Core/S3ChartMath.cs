@@ -12,6 +12,15 @@ public static class S3ChartMath
         return homogeneous / scale;
     }
 
+    public static bool TryInverseCentralProjection(S3Frame chart, double radius, D4 point, out D4 metres)
+    {
+        double denominator = point.Dot(chart.P);
+        metres = default;
+        if (denominator <= 1e-8) return false;
+        metres = new D4(point.Dot(chart.Right), point.Dot(chart.Up), point.Dot(chart.Back), 0) * (radius / denominator);
+        return true;
+    }
+
     public static D4 Apply(S3Frame frame, D4 q) => frame.Local(q.X, q.Y, q.Z) + frame.P * q.W;
 
     public static S3Frame Compose(S3Frame a, S3Frame b) =>
