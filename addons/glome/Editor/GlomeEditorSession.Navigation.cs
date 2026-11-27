@@ -1,6 +1,7 @@
 #nullable enable
 #if TOOLS
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Glome.Core;
 using Godot;
@@ -11,46 +12,61 @@ internal sealed partial class GlomeEditorSession
 {
     private sealed record FocusMotion(S3Frame From, S3Frame To, double Elapsed);
     private FocusMotion? _focus;
-    private Button _speedButton = null!;
-
-    private Button Tool(Container parent, string title, string tip, Action action, bool toggle = false)
+    private readonly Label _speedBadge = new()
     {
-        var button = new Button { Text = title, TooltipText = tip, ToggleMode = toggle,
-            FocusMode = Control.FocusModeEnum.None };
-        parent.AddChild(button);
-        Listen(button, BaseButton.SignalName.Pressed, Callable.From(() =>
+        Name = "FlySpeed", Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore,
+        SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin
+    };
+    private readonly Timer _speedTimer = new() { OneShot = true, WaitTime = 1.5 };
+
+    private void AddViewMenu(PopupMenu popup)
+    {
+        var actions = new Dictionary<long, Action>();
+        void Add(string label, Action action)
         {
-            action();
-            _image.GrabFocus();
-        }));
-        return button;
-    }
+            int id = popup.ItemCount;
+            popup.AddItem(label, id);
+            actions.Add(id, action);
+        }
 
-    private void AddNavigation(Container bar)
-    {
-        Tool(bar, "Reset View", "Return to the scene camera", Spawn);
-        Tool(bar, "Focus", "Frame the selected anchor (F)", FocusSelected);
-        Tool(bar, "From 3D", "Use the native 3D editor camera", () =>
+        Add("Focus Selection (F)", FocusSelected);
+        Add("Reset View", Spawn);
+        Add("From 3D", () =>
         {
             var camera = EditorInterface.Singleton.GetEditorViewport3D().GetCamera3D();
             if (_bake != null && camera != null) SetView(FollowCamera(camera), null);
         });
-        Tool(bar, "Origin", "Go to the origin", () => SetView(S3Frame.Identity, null));
-        Tool(bar, "Antipode", "Jump to the exact opposite camera and pivot", () =>
+        popup.AddSeparator();
+        Add("Go to Origin", () => SetView(S3Frame.Identity, null));
+        Add("Go to Antipode", () =>
         {
             if (_bake != null) SetView(GlomeAuthoring.Opposite(_view), -_pivot);
         });
-        Tool(bar, "Level Horizon", "Level pitch and roll at the camera", () =>
-            SetView(GlomeAuthoring.Level(_view), null));
-        _speedButton = Tool(bar, "", "RMB + wheel changes fly speed. Click to reset.", () => SetSpeed(DefaultSpeed));
-        SetSpeed(speed);
-        Tool(bar, "Rebake", "Refresh the preview", () => RequestBake());
+        Add("Level Horizon", () => SetView(GlomeAuthoring.Level(_view), null));
+        popup.AddSeparator();
+        AddBookmarks(popup);
+        int cameraItems = popup.ItemCount;
+        popup.AddSeparator();
+        Add("Reset Fly Speed", () => SetSpeed(DefaultSpeed, showBadge: true));
+        Add("Rebake Preview", () => RequestBake());
+        Listen(popup, Window.SignalName.AboutToPopup, Callable.From(() =>
+        {
+            for (int i = 0; i < cameraItems; i++) popup.SetItemDisabled(i, _bake == null);
+            popup.SetItemDisabled(0, _bake == null || Selected == null);
+        }));
+        Listen(popup, PopupMenu.SignalName.IdPressed, Callable.From<long>(id => actions[id]()));
     }
 
-    private void SetSpeed(double metres)
+    private void SetSpeed(double metres, bool showBadge = false)
     {
         speed = double.IsFinite(metres) ? Math.Clamp(metres, .25, 128) : DefaultSpeed;
-        _speedButton.Text = $"Speed: {speed:0.0} m/s";
+        _speedBadge.Visible = showBadge;
+        if (showBadge)
+        {
+            _speedBadge.Text = speed < 1 ? $"{speed:0.00} m/s" : $"{speed:0.0} m/s";
+            _speedTimer.Start();
+        }
+        else _speedTimer.Stop();
     }
 
     private void Spawn()

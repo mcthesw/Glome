@@ -57,7 +57,7 @@ internal sealed partial class GlomeEditorSession
                 Edge(h, outer, At(.12,.48));
             }
         }
-        if (!_deviceOverlay.ButtonPressed) return;
+        if (!Shows(OverlayItem.LightsAndCameras)) return;
         if (selected is OmniLight3D omni)
             Cap(GizmoHandle.Range, p.Travel(p.Right, Math.Clamp((drag?.Scalar ?? omni.OmniRange)/r, 0, Math.PI)).P);
         if (selected is DirectionalLight3D) Cap(GizmoHandle.Direction, p.Travel(-p.Back, 2/r).P);

@@ -8,16 +8,13 @@ namespace Glome.Editor;
 
 internal sealed partial class GlomeEditorSession
 {
-    private void AddAnchorMenu(Container bar)
+    private void AddAnchorMenu(PopupMenu popup)
     {
-        var menu = new MenuButton { Text = "Anchor", FocusMode = Control.FocusModeEnum.None };
-        bar.AddChild(menu);
-        var popup = menu.GetPopup();
         popup.AddItem("New Anchor Here", 0);
         popup.AddItem("Duplicate at Antipode", 1);
         popup.AddItem("Snap to Ground", 2);
         popup.AddItem("Face Origin", 3);
-        Listen(menu, MenuButton.SignalName.AboutToPopup, Callable.From(() =>
+        Listen(popup, Window.SignalName.AboutToPopup, Callable.From(() =>
         {
             var root = plugin.GetTree().EditedSceneRoot;
             popup.SetItemDisabled(0, _bake == null || _space == null || (_space != root && _space.Owner != root));
@@ -49,7 +46,6 @@ internal sealed partial class GlomeEditorSession
                         anchor, GlomeAuthoring.Between(from, to));
                 }
             }
-            _image.GrabFocus();
         }));
     }
 

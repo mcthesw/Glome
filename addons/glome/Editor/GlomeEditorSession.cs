@@ -20,7 +20,6 @@ internal sealed partial class GlomeEditorSession : IDisposable
         _signals.Add((source, signal, target));
     }
     private readonly VBoxContainer panel = new() { Visible = false, SizeFlagsVertical = Control.SizeFlags.ExpandFill };
-    private readonly HFlowContainer toolbar = new();
     private S3BakeSnapshot? displayedBake;
     private S3Frame submitted;
     private (S3BakeSnapshot Bake, S3Frame View, Vector2I Size, double Fov)? awaitingPresentation;
@@ -60,7 +59,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
     private bool dirty = true;
     private GlomeEditorView? viewData;
     private IGlomeEditorViewProvider[] providers = [];
-    private readonly OptionButton spaces = new() { Name = "Space" };
+    private readonly OptionButton spaces = new() { Name = "Space", AccessibilityName = "Space", FitToLongestItem = false };
     private S3Space3D[] spaceNodes = [];
     private IGlomeEditorViewProvider Provider => providers[mode.Selected];
     private double lens = GlomeComputeRenderer.VerticalFov, displayedFov = GlomeComputeRenderer.VerticalFov;
@@ -77,7 +76,11 @@ internal sealed partial class GlomeEditorSession : IDisposable
         outputSize = target;
     }
 
-    private readonly OptionButton mode = new() { Name = "ViewMode" };
+    private readonly OptionButton mode = new()
+    {
+        Name = "ViewMode", AccessibilityName = "View mode", TooltipText = "Viewport shading mode",
+        FitToLongestItem = false, SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin
+    };
     private S3Frame _view
     {
         get => _horizon.Pitch(_pitch);
@@ -164,13 +167,6 @@ internal sealed partial class GlomeEditorSession : IDisposable
         this.plugin = plugin;
         panel.Name = "GlomeMainScreen";
         EditorInterface.Singleton.GetEditorMainScreen().AddChild(panel);
-        var views = toolbar;
-        panel.AddChild(views);
-        views.AddChild(spaces);
-        Listen(spaces, OptionButton.SignalName.ItemSelected, Callable.From<long>(index => SelectSpace(spaceNodes[(int)index])));
-        Listen(mode, OptionButton.SignalName.ItemSelected, Callable.From<long>(_ => ViewChanged()));
-        GlomeEditorViews.Changed += RefreshViews;
-        views.AddChild(mode);
         _image = new GlomeDropViewport
         {
             CanPlace = CanPlace, Place = Place,
@@ -181,6 +177,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
             TooltipText = "",
             CustomMinimumSize = new(0, 135)
         };
+        AddToolbar();
         panel.AddChild(_image);
         _image.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
         _image.FocusMode = Control.FocusModeEnum.Click;
@@ -190,10 +187,11 @@ internal sealed partial class GlomeEditorSession : IDisposable
         overlay.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         Listen(overlay, CanvasItem.SignalName.Draw, Callable.From(DrawOverlay));
         Listen(EditorInterface.Singleton.GetSelection(), "selection_changed", new Callable(plugin, nameof(plugin.PreviewSelectionChanged)));
+        AddViewportControls();
+        RefreshEditorTheme();
+        Listen(panel, Control.SignalName.ThemeChanged, Callable.From(RefreshEditorTheme));
+        GlomeEditorViews.Changed += RefreshViews;
         _status = new Label { ClipText = true };
-        AddNavigation(views);
-        AddAuthoringTools(views);
-        AddBookmarks(views);
         panel.AddChild(_status);
         SelectionChanged();
         var history = new Callable(plugin, nameof(plugin.PreviewHistoryChanged));
@@ -250,6 +248,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         ReleaseScene();
         StopFly();
         sceneKey = root?.SceneFilePath ?? "";
+        SetSpeed(DefaultSpeed);
         marks = new();
         chosen = -1;
         _space = null;
@@ -268,11 +267,23 @@ internal sealed partial class GlomeEditorSession : IDisposable
     {
         spaceNodes = FindSpaces(root).ToArray();
         spaces.Clear();
-        foreach (var space in spaceNodes) spaces.AddItem(root!.GetPathTo(space).ToString());
+        foreach (var space in spaceNodes)
+        {
+            string path = root!.GetPathTo(space).ToString();
+            spaces.AddItem(path);
+            spaces.SetItemTooltip(spaces.ItemCount - 1, path);
+        }
         spaces.Visible = spaceNodes.Length > 1;
         int index = Array.IndexOf(spaceNodes, _space);
         if (index < 0) SelectSpace(spaceNodes.FirstOrDefault());
-        else spaces.Selected = index;
+        else ShowSelectedSpace(index);
+    }
+
+    private void ShowSelectedSpace(int index)
+    {
+        spaces.Selected = index;
+        spaces.Text = spaceNodes[index].Name;
+        spaces.TooltipText = spaces.GetItemText(index);
     }
 
     private void SelectSpace(S3Space3D? space)
@@ -283,7 +294,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         _space = space;
         if (space != null)
         {
-            spaces.Selected = Array.IndexOf(spaceNodes, space);
+            ShowSelectedSpace(Array.IndexOf(spaceNodes, space));
             space.BakeInvalidated += MarkDirty;
         }
         SelectionChanged();
@@ -297,6 +308,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         providers = _space == null ? [] : GlomeEditorViews.For(_space);
         mode.Clear();
         foreach (var provider in providers) mode.AddItem(provider.DisplayName);
+        mode.Visible = providers.Length > 0;
         if (providers.Length > 0) SelectView(id);
     }
 
@@ -522,7 +534,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         if (flying && button.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
         {
             double ticks = (button.ButtonIndex == MouseButton.WheelUp ? 1 : -1) * button.Factor;
-            SetSpeed(speed * Math.Pow(1.18, ticks));
+            SetSpeed(speed * Math.Pow(1.18, ticks), showBadge: true);
             _image.AcceptEvent();
             return;
         }
@@ -583,6 +595,8 @@ internal sealed partial class GlomeEditorSession : IDisposable
         selected = null;
         _focus = null;
         _hud.Visible = false;
+        _speedBadge.Hide();
+        _speedTimer.Stop();
         overlay.QueueRedraw();
         dirty = true;
         _needsBake = false;

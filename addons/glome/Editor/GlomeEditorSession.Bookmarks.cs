@@ -74,20 +74,20 @@ internal sealed partial class GlomeEditorSession
         chosen = -1;
     }
 
-    private void AddBookmarks(Container toolbar)
+    private void AddBookmarks(PopupMenu viewMenu)
     {
-        var menu = new MenuButton { Text = "Bookmarks" };
-        toolbar.AddChild(menu);
-        var popup = menu.GetPopup();
-        Listen(menu, MenuButton.SignalName.AboutToPopup, Callable.From(() =>
+        const int save = 0, rename = 1, delete = 2, separator = 3, firstBookmark = 4;
+        var popup = new PopupMenu { Name = "Bookmarks" };
+        viewMenu.AddSubmenuNodeItem("Bookmarks", popup);
+        Listen(viewMenu, Window.SignalName.AboutToPopup, Callable.From(() =>
         {
             popup.Clear();
-            popup.AddItem("Save Current View...", 0);
-            for (int i = 0; i < marks.Count; i++) popup.AddItem(marks[i]["name"].AsString(), 3+i);
-            popup.AddSeparator();
-            popup.AddItem("Rename...", 1);
-            popup.AddItem("Delete...", 2);
-            foreach (int id in new[] { 1, 2 })
+            popup.AddItem("Save Current View…", save);
+            for (int i = 0; i < marks.Count; i++) popup.AddItem(marks[i]["name"].AsString(), firstBookmark + i);
+            popup.AddSeparator(id: separator);
+            popup.AddItem("Rename…", rename);
+            popup.AddItem("Delete", delete);
+            foreach (int id in new[] { rename, delete })
                 popup.SetItemDisabled(popup.GetItemIndex(id), chosen < 0 || chosen >= marks.Count);
         }));
         var dialog = new ConfirmationDialog();
@@ -97,6 +97,10 @@ internal sealed partial class GlomeEditorSession
         Marks? target = null;
         Dict? camera = null;
         int index = -1;
+        Listen(dialog, Window.SignalName.VisibilityChanged, Callable.From(() =>
+        {
+            if (!dialog.Visible) FocusViewport();
+        }));
         Listen(dialog, AcceptDialog.SignalName.Confirmed, Callable.From(() =>
         {
             string name = field.Text.Trim();
@@ -107,13 +111,13 @@ internal sealed partial class GlomeEditorSession
         Listen(popup, PopupMenu.SignalName.IdPressed, Callable.From<long>(id =>
         {
             if (_bake == null) return;
-            if (id >= 3) { chosen = (int)id-3; SetCamera(marks[chosen]); return; }
-            if (id == 2) { marks.RemoveAt(chosen); chosen = -1; return; }
+            if (id >= firstBookmark) { chosen = (int)id - firstBookmark; SetCamera(marks[chosen]); return; }
+            if (id == delete) { marks.RemoveAt(chosen); chosen = -1; return; }
             target = marks;
             index = chosen;
-            camera = id == 0 ? CameraState() : null;
-            dialog.Title = id == 0 ? "Save Current View" : "Rename Bookmark";
-            field.Text = id == 0 ? $"View {marks.Count + 1}" : marks[chosen]["name"].AsString();
+            camera = id == save ? CameraState() : null;
+            dialog.Title = id == save ? "Save Current View" : "Rename Bookmark";
+            field.Text = id == save ? $"View {marks.Count + 1}" : marks[chosen]["name"].AsString();
             dialog.PopupCentered(new Vector2I(320, 110));
             field.GrabFocus();
             field.SelectAll();

@@ -9,7 +9,6 @@ namespace Glome.Editor;
 
 internal sealed partial class GlomeEditorSession
 {
-    private Button _collisionOverlay = null!, _deviceOverlay = null!;
     private Node3D[] _devices = [];
 
     private void Line(D4 a, D4 b, Color color, float width = 1)
@@ -26,7 +25,7 @@ internal sealed partial class GlomeEditorSession
 
     private void DrawDevices()
     {
-        if (!_deviceOverlay.ButtonPressed || displayedBake == null) return;
+        if (!Shows(OverlayItem.LightsAndCameras) || displayedBake == null) return;
         foreach (var node in _devices)
         {
             if (!GodotObject.IsInstanceValid(node) || !node.IsInsideTree()) continue;
@@ -73,7 +72,7 @@ internal sealed partial class GlomeEditorSession
 
     private bool PickDevice(Vector2 mouse)
     {
-        if (!_deviceOverlay.ButtonPressed || displayedBake == null) return false;
+        if (!Shows(OverlayItem.LightsAndCameras) || displayedBake == null) return false;
         Node3D? nearest = null;
         float best = 8;
         double arc = Math.PI;
@@ -96,7 +95,7 @@ internal sealed partial class GlomeEditorSession
 
     private void DrawCollision()
     {
-        if (!_collisionOverlay.ButtonPressed || displayedBake?.AuthoringSources is not { } sources) return;
+        if (!Shows(OverlayItem.Collision) || displayedBake?.AuthoringSources is not { } sources) return;
         foreach (var (node, proxy) in sources.Proxies)
         {
             if (!GodotObject.IsInstanceValid(node) || !GlomeWireframe.MovesWith(node, selected!)) continue;

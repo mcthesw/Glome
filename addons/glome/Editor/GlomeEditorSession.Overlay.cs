@@ -1,7 +1,6 @@
 #nullable enable
 #if TOOLS
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using Glome.Core;
@@ -10,11 +9,10 @@ namespace Glome.Editor;
 
 internal sealed partial class GlomeEditorSession
 {
-    private enum GizmoTool { Select, Move, Rotate, Scale }
-    private GizmoTool _tool;
-    private readonly Dictionary<GizmoTool, Button> _toolButtons = [];
-    private Button _snap = null!, _showPins = null!, _showBounds = null!;
-    private readonly VBoxContainer _hud = new() { MouseFilter = Control.MouseFilterEnum.Ignore };
+    private readonly PanelContainer _hud = new()
+    {
+        Name = "Readout", MouseFilter = Control.MouseFilterEnum.Ignore, SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin
+    };
     private readonly Label _location = HudLabel(), _distortion = HudLabel(), _delta = HudLabel();
     private (S3Anchor3D Node, S3Frame Pose)[] _pins = [];
     private GlomeWireframe? _bounds;
@@ -24,42 +22,8 @@ internal sealed partial class GlomeEditorSession
     private static Label HudLabel()
     {
         var label = new Label { MouseFilter = Control.MouseFilterEnum.Ignore };
-        label.AddThemeConstantOverride("outline_size", 4);
+        label.AddThemeStyleboxOverride("normal", new StyleBoxEmpty());
         return label;
-    }
-
-    private void AddAuthoringTools(Container bar)
-    {
-        foreach (var tool in Enum.GetValues<GizmoTool>())
-        {
-            string binding = tool switch { GizmoTool.Select => "Q", GizmoTool.Move => "W", GizmoTool.Rotate => "E", _ => "R" };
-            _toolButtons.Add(tool, Tool(bar, tool.ToString(), $"{tool} ({binding})", () => SetTool(tool), true));
-        }
-        SetTool(GizmoTool.Move);
-        _snap = Tool(bar, "Snap", "Snap to 0.5 m or 15° (Ctrl). Hold Shift for fine motion.", () => { }, true);
-        _showPins = Tool(bar, "Anchors", "Show and pick anchor pins and axes", overlay.QueueRedraw, true);
-        _showPins.ButtonPressed = true;
-        _showBounds = Tool(bar, "Bounds", "Show selected mesh bounds", () =>
-        {
-            RefreshBounds();
-            overlay.QueueRedraw();
-        }, true);
-        _collisionOverlay = Tool(bar, "Collision", "Selected collision shapes and walkable tops", overlay.QueueRedraw, true);
-        _deviceOverlay = Tool(bar, "Lights & Cameras", "Pick lights and cameras and inspect their volumes", overlay.QueueRedraw, true);
-        AddAnchorMenu(bar);
-        _image.AddChild(_hud);
-        _hud.Position = new(10, 8);
-        _hud.AddChild(_location);
-        _hud.AddChild(_distortion);
-        _hud.AddChild(_delta);
-        _hud.Visible = false;
-    }
-
-    private void SetTool(GizmoTool tool)
-    {
-        _tool = tool;
-        foreach (var (mode, button) in _toolButtons) button.SetPressedNoSignal(mode == tool);
-        CancelDrag();
     }
 
     private void CacheAnchors(double radius)
@@ -78,7 +42,7 @@ internal sealed partial class GlomeEditorSession
     }
 
     private void RefreshBounds() => _bounds = _bake != null && GodotObject.IsInstanceValid(selected)
-        && _showBounds.ButtonPressed ? GlomeWireframe.Capture(selected!, _bake, bounds: true) : null;
+        && Shows(OverlayItem.SelectionBounds) ? GlomeWireframe.Capture(selected!, _bake, bounds: true) : null;
 
     private void UpdateHud()
     {
@@ -103,7 +67,7 @@ internal sealed partial class GlomeEditorSession
 
     private void DrawPins()
     {
-        if (!_showPins.ButtonPressed || displayedBake == null) return;
+        if (!Shows(OverlayItem.AnchorPins) || displayedBake == null) return;
         foreach (var (anchor, cached) in _pins)
         {
             if (!GodotObject.IsInstanceValid(anchor) || !anchor.IsInsideTree()) continue;
@@ -127,7 +91,7 @@ internal sealed partial class GlomeEditorSession
 
     private bool PickAnchorPin(Vector2 mouse)
     {
-        if (!_showPins.ButtonPressed || displayedBake == null) return false;
+        if (!Shows(OverlayItem.AnchorPins) || displayedBake == null) return false;
         S3Anchor3D? hit = null;
         float best = 7;
         double arc = Math.PI;
