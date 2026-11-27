@@ -65,7 +65,9 @@ internal struct ProbeRecord
 
 public sealed record TextureBank(int Width, int Height, int MipCount, byte[][] Layers, bool Srgb = false)
 {
-    internal static TextureBank Empty { get; } = new(1, 1, 1, [[255, 255, 255, 255]]);
+    // Opt in only when each pixel layer remains immutable across rebuilds.
+    public bool Reusable { get; init; }
+    internal static TextureBank Empty { get; } = new(1, 1, 1, [[255, 255, 255, 255]]) { Reusable = true };
 }
 
 public sealed record GlomeBuffers(byte[] Triangles, byte[] Nodes, byte[] Materials, byte[] Lights,

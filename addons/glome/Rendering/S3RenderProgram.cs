@@ -13,6 +13,8 @@ public partial class S3RenderProgram : Resource
 {
     [Export] public RDShaderFile? Shader { get; set; }
     [Export] public int[] SpecializationValues { get; set; } = [];
+    // Optional effects compile on first use. Existing programs prewarm every variant.
+    public int PrewarmPipelineCount { get; init; } = int.MaxValue;
     public Func<ProgramBuffer[]>? CaptureSet1 { get; set; }
 
     internal RDShaderSpirV GetComputeSpirV()

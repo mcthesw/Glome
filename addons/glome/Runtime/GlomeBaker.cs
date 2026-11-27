@@ -47,18 +47,22 @@ public static class GlomeBaker
     {
         options ??= new();
         space.BeginBake();
-        var inputs = ExtractInputs(space, options, out var owners);
+        var (inputs, owners) = ExtractInputs(space, options, null).GetAwaiter().GetResult();
         return Publish(space, inputs, BakeCore(inputs, options.GroundMask), owners);
     }
 
     /// <summary>Call on the Godot main thread. Only captured values are processed on the worker.</summary>
-    public static async Task<S3BakeSnapshot> BakeAsync(S3Space3D space, GlomeBakeOptions? options = null,
-        CancellationToken cancellationToken = default)
+    public static Task<S3BakeSnapshot> BakeAsync(S3Space3D space, GlomeBakeOptions? options = null,
+        CancellationToken cancellationToken = default) => BakeAsync(space, options, cancellationToken, null);
+
+    // Only a private preparation scene may yield during extraction. Public bakes snapshot in one traversal.
+    internal static async Task<S3BakeSnapshot> BakeAsync(S3Space3D space, GlomeBakeOptions? options,
+        CancellationToken cancellationToken, Func<ValueTask>? yieldIfNeeded)
     {
         cancellationToken.ThrowIfCancellationRequested();
         options ??= new();
         long generation = space.BeginBake();
-        var inputs = ExtractInputs(space, options, out var owners);
+        var (inputs, owners) = await ExtractInputs(space, options, yieldIfNeeded);
         var mask = options.GroundMask;
         var result = await Task.Run(() => BakeCore(inputs, mask), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
@@ -68,7 +72,8 @@ public static class GlomeBaker
     }
 
     // Visibility governs meshes. Enabled collision shapes remain physical even on hidden nodes.
-    private static BakeInputs ExtractInputs(S3Space3D space, GlomeBakeOptions options, out Node3D[]? owners)
+    private static async ValueTask<(BakeInputs, Node3D[]?)> ExtractInputs(
+        S3Space3D space, GlomeBakeOptions options, Func<ValueTask>? yieldIfNeeded)
     {
         double radius = options.RadiusOverride ?? space.Radius;
         if (!double.IsFinite(radius) || radius <= 0) throw new ArgumentOutOfRangeException(nameof(options.RadiusOverride));
@@ -79,33 +84,33 @@ public static class GlomeBaker
 
         var native = options.ResolveMaterial == null ? new NativeMaterialTable() : null;
         var resolve = options.ResolveMaterial ?? native!.Resolve;
-        VisitChart(space, null, S3Frame.Identity, Transform3D.Identity, space.Visible);
+        await VisitChart(space, null, S3Frame.Identity, Transform3D.Identity, space.Visible);
         var env = space.Environment ?? new S3Environment();
         var ground = env.GroundMaterial != null && space.EquatorialGroundEnabled && env.EquatorialGroundEnabled
             ? resolve(env.GroundMaterial) : new SurfaceTag(0, 0);
         var environment = env.Capture(space.EquatorialGroundEnabled ? ground.Material : -1);
-        owners = sources?.ToArray();
-        return new(radius, surfaces.ToArray(), proxies.ToArray(), ground, environment, native?.Finish(), lights.ToArray(), options.IncludeOwners);
+        return (new(radius, surfaces.ToArray(), proxies.ToArray(), ground, environment, native?.Finish(), lights.ToArray(), options.IncludeOwners), sources?.ToArray());
 
-        void VisitChart(Node root, S3Anchor3D? owner, S3Frame frame, Transform3D transform, bool visible)
+        async ValueTask VisitChart(Node root, S3Anchor3D? owner, S3Frame frame, Transform3D transform, bool visible)
         {
             // Finish a chart's own geometry before its child charts. This keeps triangle and
             // proxy IDs stable even when a procedural mesh is appended after a nested anchor.
             List<(S3Anchor3D Anchor, bool Visible)>? nested = null;
-            Walk(root, transform, visible);
+            await Walk(root, transform, visible);
             if (nested == null) return;
             foreach (var (anchor, inheritedVisibility) in nested)
             {
                 var chart = anchor.ChartPose(radius);
                 options.OnAnchor?.Invoke(anchor, chart.Frame, chart.Pose);
-                VisitChart(anchor, anchor, chart.Frame, chart.Pose, inheritedVisibility);
+                await VisitChart(anchor, anchor, chart.Frame, chart.Pose, inheritedVisibility);
             }
 
-            void Walk(Node parent, Transform3D parentPose, bool parentVisible)
+            async ValueTask Walk(Node parent, Transform3D parentPose, bool parentVisible)
             {
                 // GetChildren excludes internal editor guides and includes generated nodes with no Owner.
                 foreach (var child in parent.GetChildren())
                 {
+                    if (yieldIfNeeded != null) await yieldIfNeeded();
                     if (child is S3Space3D or Viewport) continue;
                     bool childVisible = parentVisible && (child is not Node3D spatial || spatial.Visible);
                     if (child is S3Anchor3D anchor)
@@ -130,7 +135,7 @@ public static class GlomeBaker
                         options.OnProxy?.Invoke(proxies.Count, shape, frame, pose);
                         proxies.Add(proxy);
                     }
-                    Walk(child, pose, childVisible);
+                    await Walk(child, pose, childVisible);
                 }
             }
         }
@@ -164,13 +169,23 @@ public static class GlomeBaker
 
     private static BakeResult BakeCore(BakeInputs inputs, Predicate<D4>? groundMask = null)
     {
-        var triangles = new List<GeodesicTriangle>();
-        List<int>? owners = inputs.TrackOwners ? [] : null;
-        foreach (var surface in inputs.Surfaces)
-            Project(surface, inputs.Radius, triangles, owners);
-
-        var faces = triangles.ToArray();
-        var indices = owners?.ToArray();
+        // Extraction has already copied the engine data. Each surface can now be
+        // projected independently. Concatenate in authored order to preserve hit and owner IDs.
+        var surfaces = inputs.Surfaces;
+        var batches = new GeodesicTriangle[surfaces.Length][];
+        Parallel.For(0, surfaces.Length, i => batches[i] = Project(surfaces[i], inputs.Radius));
+        int count = 0;
+        foreach (var batch in batches) count = checked(count + batch.Length);
+        var faces = new GeodesicTriangle[count];
+        var indices = inputs.TrackOwners ? new int[count] : null;
+        int first = 0;
+        for (int i = 0; i < batches.Length; i++)
+        {
+            var batch = batches[i];
+            batch.CopyTo(faces, first);
+            if (indices != null) Array.Fill(indices, surfaces[i].OwnerIndex, first, batch.Length);
+            first += batch.Length;
+        }
         var nodes = indices is null ? CapBvhBuilder.Build(faces) : CapBvhBuilder.Build(faces, indices);
         bool floor = inputs.Environment.ModeGroundMaterial.Y >= 0;
         var uv = inputs.Environment.GroundUvTransform;
@@ -188,12 +203,14 @@ public static class GlomeBaker
         return space.Publish(result.Geometry, result.Collision, owners, inputs.Materials, inputs.Lights, inputs.Environment);
     }
 
-    private static void Project(MeshSurface surface, double radius, List<GeodesicTriangle> triangles, List<int>? owners)
+    private static GeodesicTriangle[] Project(MeshSurface surface, double radius)
     {
         var (vertices, normals, uvs, indices, frame, pose, uvScale, uvOffset, tag, strip, _) = surface;
         float determinant = pose.Basis.Determinant();
         Basis normalBasis = pose.Basis.Inverse().Transposed();
         int count = indices.Length == 0 ? vertices.Length : indices.Length;
+        var triangles = new GeodesicTriangle[strip ? Math.Max(0, count - 2) : count / 3];
+        int written = 0;
         for (int i = 0; i + 2 < count; i += strip ? 1 : 3)
         {
             int Index(int n) => indices.Length == 0 ? i + n : indices[i + n];
@@ -212,9 +229,10 @@ public static class GlomeBaker
             }
             // A reflected transform reverses chart winding. Godot keeps the authored front face.
             if (determinant < 0 && (tag.Traversal & TraversalFlags.CullMask) != TraversalFlags.TwoSided) (b, c) = (c, b);
-            triangles.Add(new(Vertex(a), Vertex(b), Vertex(c), tag.Material, tag.Surface, tag.Traversal));
-            owners?.Add(surface.OwnerIndex);
+            triangles[written++] = new(Vertex(a), Vertex(b), Vertex(c), tag.Material, tag.Surface, tag.Traversal);
         }
+        if (written != triangles.Length) Array.Resize(ref triangles, written);
+        return triangles;
     }
 
     private static Mesh.PrimitiveType Topology(Mesh mesh, int surface)
