@@ -30,7 +30,7 @@ internal sealed partial class GlomeEditorSession
             segment(h, center + new Vector2(-half, 0), center + new Vector2(half, 0));
             segment(h, center + new Vector2(0, -half), center + new Vector2(0, half));
         }
-        if (_tool == GizmoTool.Select || _tool == GizmoTool.Scale && selected is Light3D or S3Camera3D) return;
+        if (_tool == GizmoTool.Select || _tool == GizmoTool.Scale && selected is Light3D or S3Camera3D or S3GeodesicSpan3D) return;
         if (_tool == GizmoTool.Rotate)
         {
             foreach (var ring in new[] { GizmoHandle.Pitch, GizmoHandle.Yaw, GizmoHandle.Roll })

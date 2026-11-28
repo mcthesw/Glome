@@ -1,0 +1,47 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://SpanPier.tscn" id="Pier"]
+
+[sub_resource type="StandardMaterial3D" id="Iron"]
+albedo_color = Color(0.27, 0.23, 0.19, 1)
+roughness = 0.8
+metallic = 0.3
+
+[sub_resource type="BoxMesh" id="Rail"]
+material = SubResource("Iron")
+size = Vector3(3, 0.11, 0.13)
+
+[sub_resource type="BoxMesh" id="Baluster"]
+material = SubResource("Iron")
+size = Vector3(0.055, 0.68, 0.055)
+
+[sub_resource type="BoxShape3D" id="Railing"]
+size = Vector3(3, 0.79, 0.13)
+
+[node name="Bay" type="StaticBody3D"]
+
+[node name="Pier" parent="." instance=ExtResource("Pier")]
+
+[node name="LowerRail" type="MeshInstance3D" parent="."]
+position = Vector3(1.5, 0.46, 0)
+mesh = SubResource("Rail")
+
+[node name="Handrail" type="MeshInstance3D" parent="."]
+position = Vector3(1.5, 1.14, 0)
+mesh = SubResource("Rail")
+
+[node name="BalusterA" type="MeshInstance3D" parent="."]
+position = Vector3(0.75, 0.8, 0)
+mesh = SubResource("Baluster")
+
+[node name="BalusterB" type="MeshInstance3D" parent="."]
+position = Vector3(1.5, 0.8, 0)
+mesh = SubResource("Baluster")
+
+[node name="BalusterC" type="MeshInstance3D" parent="."]
+position = Vector3(2.25, 0.8, 0)
+mesh = SubResource("Baluster")
+
+[node name="RailingCollision" type="CollisionShape3D" parent="."]
+position = Vector3(1.5, 0.8, 0)
+shape = SubResource("Railing")

@@ -97,38 +97,41 @@ internal sealed partial class GlomeEditorSession
     {
         if (!Shows(OverlayItem.Collision) || displayedBake?.AuthoringSources is not { } sources) return;
         foreach (var (node, proxy) in sources.Proxies)
+            if (GodotObject.IsInstanceValid(node) && node != _spanDrag?.Span && GlomeWireframe.MovesWith(node, selected!))
+                DrawProxy(proxy);
+    }
+
+    private void DrawProxy(CollisionShapeAdapter.Input proxy)
+    {
+        D4 Point(float x, float y, float z) => GlomeNodeEditing.Lift(proxy.Chart,
+            proxy.Pose * (new Vector3(x,y,z) * proxy.Half), displayedBake!.Geometry.Radius);
+        var color = Colors.Cyan;
+        if (proxy.Shape == ProxyShape.Cylinder)
         {
-            if (!GodotObject.IsInstanceValid(node) || !GlomeWireframe.MovesWith(node, selected!)) continue;
-            D4 Point(float x, float y, float z) => GlomeNodeEditing.Lift(proxy.Chart,
-                proxy.Pose * (new Vector3(x,y,z) * proxy.Half), displayedBake.Geometry.Radius);
-            var color = Colors.Cyan;
-            if (proxy.Shape == ProxyShape.Cylinder)
+            for (int i = 0; i < 24; i++)
             {
-                for (int i = 0; i < 24; i++)
-                {
-                    var (a,b) = MathF.SinCos(Mathf.Tau*i/24);
-                    var (c,d) = MathF.SinCos(Mathf.Tau*(i+1)/24);
-                    Line(Point(a,-1,b), Point(c,-1,d), color);
-                    Line(Point(a,1,b), Point(c,1,d), color);
-                    if (i % 6 == 0) Line(Point(a,-1,b), Point(a,1,b), color);
-                }
-                continue;
+                var (a,b) = MathF.SinCos(Mathf.Tau*i/24);
+                var (c,d) = MathF.SinCos(Mathf.Tau*(i+1)/24);
+                Line(Point(a,-1,b), Point(c,-1,d), color);
+                Line(Point(a,1,b), Point(c,1,d), color);
+                if (i % 6 == 0) Line(Point(a,-1,b), Point(a,1,b), color);
             }
-            var top = new Vector2[4];
-            bool visible = true;
-            for (int i = 0; i < 4; i++)
-            {
-                int x = i is 0 or 3 ? -1 : 1, z = i < 2 ? -1 : 1;
-                int nextX = i is 2 or 3 ? -1 : 1, nextZ = i is 0 or 3 ? -1 : 1;
-                var a = Point(x,1,z);
-                visible &= Project(a, out top[i]);
-                Line(Point(x,-1,z), Point(nextX,-1,nextZ), color);
-                Line(Point(x,-1,z), a, color);
-                Line(a, Point(nextX,1,nextZ), proxy.Walkable ? Colors.LimeGreen : color, proxy.Walkable ? 2 : 1);
-            }
-            if (proxy.Walkable && visible && Math.Abs((top[1]-top[0]).Cross(top[3]-top[0])) > 1)
-                overlay.DrawColoredPolygon(top, new Color(Colors.LimeGreen, .28f));
+            return;
         }
+        var top = new Vector2[4];
+        bool visible = true;
+        for (int i = 0; i < 4; i++)
+        {
+            int x = i is 0 or 3 ? -1 : 1, z = i < 2 ? -1 : 1;
+            int nextX = i is 2 or 3 ? -1 : 1, nextZ = i is 0 or 3 ? -1 : 1;
+            var a = Point(x,1,z);
+            visible &= Project(a, out top[i]);
+            Line(Point(x,-1,z), Point(nextX,-1,nextZ), color);
+            Line(Point(x,-1,z), a, color);
+            Line(a, Point(nextX,1,nextZ), proxy.Walkable ? Colors.LimeGreen : color, proxy.Walkable ? 2 : 1);
+        }
+        if (proxy.Walkable && visible && Math.Abs((top[1]-top[0]).Cross(top[3]-top[0])) > 1)
+            overlay.DrawColoredPolygon(top, new Color(Colors.LimeGreen, .28f));
     }
 }
 #endif

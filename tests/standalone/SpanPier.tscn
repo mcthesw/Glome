@@ -1,0 +1,40 @@
+[gd_scene format=3]
+
+[sub_resource type="StandardMaterial3D" id="Stone"]
+albedo_color = Color(0.72, 0.67, 0.55, 1)
+
+[sub_resource type="StandardMaterial3D" id="Slate"]
+albedo_color = Color(0.35, 0.34, 0.32, 1)
+
+[sub_resource type="BoxMesh" id="Foot"]
+material = SubResource("Slate")
+size = Vector3(0.58, 0.14, 0.58)
+
+[sub_resource type="BoxMesh" id="Shaft"]
+material = SubResource("Stone")
+size = Vector3(0.37, 1.25, 0.37)
+
+[sub_resource type="BoxMesh" id="Cap"]
+material = SubResource("Stone")
+size = Vector3(0.54, 0.18, 0.54)
+
+[sub_resource type="BoxShape3D" id="Solid"]
+size = Vector3(0.37, 1.5, 0.37)
+
+[node name="Pier" type="StaticBody3D"]
+
+[node name="Plinth" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.07, 0)
+mesh = SubResource("Foot")
+
+[node name="Shaft" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.75, 0)
+mesh = SubResource("Shaft")
+
+[node name="Capital" type="MeshInstance3D" parent="."]
+position = Vector3(0, 1.43, 0)
+mesh = SubResource("Cap")
+
+[node name="Collision" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.75, 0)
+shape = SubResource("Solid")

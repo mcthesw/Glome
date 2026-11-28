@@ -198,6 +198,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         Listen(plugin.GetUndoRedo(), EditorUndoRedoManager.SignalName.VersionChanged, history);
         Listen(plugin.GetUndoRedo(), EditorUndoRedoManager.SignalName.HistoryChanged, history);
         plugin.AddUndoRedoInspectorHookCallback(new Callable(plugin, nameof(plugin.PreviewInspectorEdit)));
+        WatchCsgHierarchy();
         Listen(RenderingServer.Singleton, "frame_post_draw", new Callable(plugin, nameof(plugin.PreviewFramePresented)));
         Listen(plugin, "scene_changed", new Callable(plugin, nameof(plugin.PreviewSceneSwitched)));
         SceneSwitched(plugin.GetTree().EditedSceneRoot);
@@ -384,6 +385,9 @@ internal sealed partial class GlomeEditorSession : IDisposable
         _bakingProvider = Provider;
         _dispatcher = new();
         _baking = _dispatcher.Start(_bakingProvider, _space!, _bakeCancellation.Token);
+        // Extraction has captured the native mesh. Edits made during the worker
+        // projection must still differ from this stamp after presentation.
+        RememberCsgRoots();
     }
 
     private void PresentBake(GlomeEditorView data)
@@ -443,6 +447,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         {
             _time += delta;
             var elapsed = delta;
+            CheckCsgChanges(delta);
             UpdateBake(delta);
             if (_renderer is null || _bake is null) return;
             if (_renderer.Notices.TryDequeue(out var notice)) throw new InvalidOperationException(notice.Message);
@@ -589,6 +594,7 @@ internal sealed partial class GlomeEditorSession : IDisposable
         viewData = null;
         awaitingPresentation = null;
         _charts = [];
+        _csgRoots = [];
         _pins = [];
         _devices = [];
         _bounds = null;

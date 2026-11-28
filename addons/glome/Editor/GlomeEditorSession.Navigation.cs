@@ -120,7 +120,7 @@ internal sealed partial class GlomeEditorSession
     {
         if (key.Keycode == Key.Escape)
         {
-            bool handled = flying || drag != null || _focus != null;
+            bool handled = flying || drag != null || _spanDrag != null || _focus != null;
             StopFly();
             CancelDrag();
             _focus = null;
@@ -129,7 +129,7 @@ internal sealed partial class GlomeEditorSession
         if (flying || !_image.HasFocus() || _bake == null || key.Echo || key.AltPressed || key.ShiftPressed) return false;
         if (key.CtrlPressed || key.MetaPressed)
         {
-            if (key.Keycode != Key.D || !Editable || drag != null) return false;
+            if (key.Keycode != Key.D || !Editable || drag != null || _spanDrag != null) return false;
             Insert("Duplicate S³ node", [GlomeScenePlacement.Duplicate(selected!, plugin.GetTree().EditedSceneRoot)]);
             return true;
         }

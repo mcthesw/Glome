@@ -52,7 +52,7 @@ internal sealed partial class GlomeEditorSession
         Node? source = null;
         if (hit.Kind == HitKind.Triangle)
             source = snapshot.AuthoringSources is { } sources
-                ? sources.Meshes[sources.TriangleSources[hit.Triangle]] : snapshot.TriangleOwners?[hit.Triangle];
+                ? sources.SourceForTriangle(hit.Triangle) : snapshot.TriangleOwners?[hit.Triangle];
         SelectPicked(source);
     }
 

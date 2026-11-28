@@ -38,17 +38,23 @@ internal static class GlomeAuthoring
         double chartSquared = 0, pivotSquared = 0;
         void Inspect(Node node, Transform3D pose)
         {
+            if (node is CsgShape3D csg && (node == root || csg.IsRootShape()))
+            {
+                var bounds = csg.GetAabb();
+                for (int i = 0; i < 8; i++) Include(pose * bounds.GetEndpoint(i));
+            }
             if (node is not MeshInstance3D { Mesh: { } mesh }) return;
             for (int i = 0; i < mesh.GetSurfaceCount(); i++)
             {
                 using var arrays = mesh.SurfaceGetArrays(i);
                 foreach (var vertex in arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array())
-                {
-                    var point = pose * vertex;
-                    chartSquared = Math.Max(chartSquared, point.LengthSquared());
-                    pivotSquared = Math.Max(pivotSquared, point.DistanceSquaredTo(transform.Origin));
-                }
+                    Include(pose * vertex);
             }
+        }
+        void Include(Vector3 point)
+        {
+            chartSquared = Math.Max(chartSquared, point.LengthSquared());
+            pivotSquared = Math.Max(pivotSquared, point.DistanceSquaredTo(transform.Origin));
         }
         Inspect(root, transform);
         GlomeChart.Walk(root, transform, Inspect);

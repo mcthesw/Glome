@@ -16,6 +16,12 @@ public partial class EditorChecks : RefCounted
     private GlomeEditorPlugin _plugin = null!;
     private Dict _before = null!;
 
+    public void CheckAuthoringGeometry()
+    {
+        Glome.StandaloneTests.CsgBakeChecks.Run();
+        Glome.StandaloneTests.GeodesicSpanChecks.Run();
+    }
+
     public void RegisterView()
     {
         var root = EditorInterface.Singleton.GetBaseControl().GetTree().Root;

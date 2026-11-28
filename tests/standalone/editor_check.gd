@@ -100,6 +100,7 @@ func run() -> void:
 	if not check(differs(unlit, relit), "unlit and standard frames are indistinguishable"): return
 	if not check(target.BakeRevision == revision and preview.texture == texture, "neutral modes rebuilt the preview"): return
 	bridge = load("res://EditorChecks.cs").new()
+	bridge.CheckAuthoringGeometry()
 	await check_authored(target)
 	if failed: return
 	await live_inspector(target.get_node("Target/Block"))

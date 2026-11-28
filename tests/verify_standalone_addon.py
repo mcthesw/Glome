@@ -114,7 +114,8 @@ def editor_check(godot: Path, project: Path, review: Path, logs: Path) -> None:
 
 
 def install_checks(project: Path) -> None:
-    for name in ("Acceptance.cs", "EditorChecks.cs", "Authored.tscn", "Tile.tscn", "Cel.tscn", "cel.glsl", "grade.gdshader"):
+    for name in ("Acceptance.cs", "EditorChecks.cs", "CsgBakeChecks.cs", "GeodesicSpanChecks.cs",
+                 "SpanBay.tscn", "SpanPier.tscn", "Authored.tscn", "Tile.tscn", "Cel.tscn", "cel.glsl", "grade.gdshader"):
         shutil.copyfile(FIXTURES / name, project / name)
     with (project / "project.godot").open("a", encoding="utf-8") as config:
         config.write('\n[autoload]\nAcceptanceDriver="*res://Acceptance.cs"\n')

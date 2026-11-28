@@ -24,8 +24,11 @@ internal sealed partial class GlomeEditorSession
     private void CancelDrag()
     {
         drag = null;
+        bool spanMoved = _spanDrag != null;
+        _spanDrag = null;
         _arcDelta = _angleDelta = 0;
         _delta.Visible = false;
+        if (spanMoved) UpdateHud();
         overlay.QueueRedraw();
     }
 
@@ -67,13 +70,16 @@ internal sealed partial class GlomeEditorSession
                 Line(Point(edge.A), Point(edge.B), Colors.White);
             }
         }
-        if (!Editable || Antipodal || _tool == GizmoTool.Select) return;
-        Handles(pivot, (handle, a, b) => overlay.DrawLine(a, b, HandleColor(handle), 2, true));
+        if (!Editable) return;
+        if (!Antipodal && _spanDrag == null && _tool != GizmoTool.Select)
+            Handles(pivot, (handle, a, b) => overlay.DrawLine(a, b, HandleColor(handle), 2, true));
+        if (selected is S3GeodesicSpan3D span) DrawSpan(span);
     }
 
     private bool DragInput(InputEvent input)
     {
         if (input is not InputEventMouse mouse || flying) return false;
+        if (drag == null && selected is S3GeodesicSpan3D span && SpanInput(mouse, span)) return true;
         if (drag == null)
         {
             if (mouse is not InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } ||
@@ -91,7 +97,7 @@ internal sealed partial class GlomeEditorSession
         var pixels = mouse.Position - g.Last;
         float precision = mouse.ShiftPressed ? .1f : 1;
         g.Pixels += pixels * precision;
-        if (InDragPlane(g, g.Last) is { } start && InDragPlane(g, mouse.Position) is { } end)
+        if (InDragPlane(g.Pivot.P, g.Plane, g.Last) is { } start && InDragPlane(g.Pivot.P, g.Plane, mouse.Position) is { } end)
         {
             g.Metres += (end - start) * precision;
             g.Radians += start.AngleTo(end) * precision;
@@ -121,18 +127,18 @@ internal sealed partial class GlomeEditorSession
         return true;
     }
 
-    private Vector2? InDragPlane(GlomeGizmoDrag g, Vector2 screen)
+    private Vector2? InDragPlane(D4 pivot, GizmoPlane plane, Vector2 screen)
     {
         var uv = (screen - _image.Size / 2) * (float)(2 * TanHalfFov / ImageSize.Y);
         var dir = displayed.Local(uv.X, -uv.Y, -1).Unit();
-        double a = displayed.P.Dot(g.Plane.Normal), b = dir.Dot(g.Plane.Normal);
+        double a = displayed.P.Dot(plane.Normal), b = dir.Dot(plane.Normal);
         if (Math.Abs(a) < 1e-7) return null;
         double t = Math.Atan2(-a, b);
         if (t < 0) t += Math.PI;
         var point = new ArcRay(displayed.P, dir).At(t);
-        if (point.Dot(g.Pivot.P) < .05) return null;
-        var log = S3Frame.LogMap(g.Pivot.P, point) * _space!.Radius;
-        return new((float)log.Dot(g.Plane.U), (float)log.Dot(g.Plane.V));
+        if (point.Dot(pivot) < .05) return null;
+        var log = S3Frame.LogMap(pivot, point) * _space!.Radius;
+        return new((float)log.Dot(plane.U), (float)log.Dot(plane.V));
     }
 
     private void CommitProperty(Node3D node, string property, Variant value, Variant before)

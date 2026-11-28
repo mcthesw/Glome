@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using Glome.Core;
 using Godot;
@@ -8,10 +9,37 @@ namespace Glome;
 
 public readonly record struct GlomeLightSource(ulong Id, string Path);
 
+internal readonly record struct GlomeMeshPlacement(Node3D Node, S3Frame Frame, Transform3D Pose, Aabb Bounds);
+internal readonly record struct SpanWireEdge(Vector3 A, Vector3 B);
+internal sealed record SpanPreviewGeometry(SpanWireEdge[] Edges, CollisionShapeAdapter.Input[] Proxies);
+
 /// <summary>Editor-only capture in BVH order. Runtime snapshots omit these node references.</summary>
 public sealed record GlomeAuthoringSources(MeshInstance3D[] Meshes, int[] TriangleSources, Light3D[] Lights)
 {
-    internal (CollisionShape3D Node, CollisionShapeAdapter.Input Proxy)[] Proxies { get; init; } = [];
+    // Mesh indices retain their original meaning. A negative index addresses an
+    // evaluated surface (a CSG root or a repeated asset) by its bitwise complement.
+    internal GlomeMeshPlacement[] Evaluated { get; init; } = [];
+    internal IReadOnlyDictionary<ulong, SpanPreviewGeometry>? SpanTemplates { get; init; }
+    public Node3D SourceForTriangle(int triangle)
+    {
+        int index = TriangleSources[triangle];
+        return index >= 0 ? Meshes[index] : Evaluated[~index].Node;
+    }
+
+    internal IEnumerable<(int Index, GlomeMeshPlacement Placement)> Placements(double radius, Predicate<Node3D> include)
+    {
+        for (int i = 0; i < Meshes.Length; i++)
+        {
+            var mesh = Meshes[i];
+            if (!GodotObject.IsInstanceValid(mesh) || !include(mesh)) continue;
+            var (frame, pose) = GlomeChart.InheritedPose(mesh, radius);
+            yield return (i, new(mesh, frame, pose, mesh.GetAabb()));
+        }
+        for (int i = 0; i < Evaluated.Length; i++)
+            if (GodotObject.IsInstanceValid(Evaluated[i].Node) && include(Evaluated[i].Node)) yield return (~i, Evaluated[i]);
+    }
+
+    internal (Node3D Node, CollisionShapeAdapter.Input Proxy)[] Proxies { get; init; } = [];
     internal ulong GroundMaterialId { get; init; }
 }
 

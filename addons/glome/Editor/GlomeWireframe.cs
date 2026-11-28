@@ -22,16 +22,18 @@ internal sealed class GlomeWireframe
         var (_, rootPose) = GlomeNodeEditing.Pose(root, radius);
         if (!GlomeNodeEditing.Invertible(rootPose.Basis)) return result;
         var inverse = rootPose.AffineInverse();
+        if (root is CsgShape3D operand && !operand.IsRootShape())
+            Box(GlomeNodeEditing.Pose(root, radius).Frame, Transform3D.Identity, operand.GetAabb());
         var frames = new Dictionary<int, S3Frame>();
-        for (int i = 0; i < sources.Meshes.Length; i++)
+        foreach (var (i, placement) in sources.Placements(radius, node => MovesWith(node, root)))
         {
-            var mesh = sources.Meshes[i];
-            if (!GodotObject.IsInstanceValid(mesh) || !MovesWith(mesh, root)) continue;
-            var (frame, pose) = GlomeChart.InheritedPose(mesh, radius);
+            var (_, frame, pose, box) = placement;
             frames.Add(i, frame);
             if (!bounds) continue;
-            var local = inverse * pose;
-            var box = mesh.GetAabb();
+            Box(frame, inverse * pose, box);
+        }
+        void Box(S3Frame frame, Transform3D local, Aabb box)
+        {
             for (int j = 0; j < 8; j++)
                 for (int bit = 1; bit <= 4; bit *= 2)
                     if ((j & bit) == 0) result.Edges.Add(new(frame, local * box.GetEndpoint(j), local * box.GetEndpoint(j | bit)));

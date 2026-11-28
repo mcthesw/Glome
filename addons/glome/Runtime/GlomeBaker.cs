@@ -32,7 +32,7 @@ public sealed record GlomeBakeOptions(
     public GlomeBakeTimings? Timings { get; init; }
 }
 
-public static class GlomeBaker
+public static partial class GlomeBaker
 {
     private sealed record BakeInputs(double Radius, MeshSurface[] Surfaces, CollisionShapeAdapter.Input[] Proxies,
         SurfaceTag Ground, EnvironmentBlock Environment, GlomeMaterials? Materials, GlomeLight[] Lights, bool TrackOwners);
@@ -47,7 +47,15 @@ public static class GlomeBaker
         public readonly List<Node3D>? Owners = options.IncludeOwners ? [] : null;
         public readonly List<MeshInstance3D>? Meshes = options.CaptureAuthoringSources ? [] : null;
         public readonly List<Light3D>? Lights = options.CaptureAuthoringSources ? [] : null;
-        public readonly List<(CollisionShape3D, CollisionShapeAdapter.Input)>? Proxies = options.CaptureAuthoringSources ? [] : null;
+        public readonly List<(Node3D, CollisionShapeAdapter.Input)>? Proxies = options.CaptureAuthoringSources ? [] : null;
+        public readonly List<GlomeMeshPlacement>? Evaluated = options.CaptureAuthoringSources || options.IncludeOwners ? [] : null;
+        public Dictionary<ulong, SpanPreviewGeometry>? SpanTemplates;
+        public int AddEvaluated(Node3D node, S3Frame frame, Transform3D pose, Aabb bounds)
+        {
+            int id = ~(Evaluated?.Count ?? 0);
+            Evaluated?.Add(new(node, frame, pose, bounds));
+            return id;
+        }
         public readonly List<GlomeLightSource> LightSources = [];
         public ulong GroundMaterialId;
     }
@@ -103,6 +111,7 @@ public static class GlomeBaker
 
         var native = options.ResolveMaterial == null ? new NativeMaterialTable() : null;
         var resolve = options.ResolveMaterial ?? native!.Resolve;
+        Dictionary<PackedScene, SpanTemplate>? spanTemplates = null;
         await VisitChart(space, null, S3Frame.Identity, Transform3D.Identity, space.Visible);
         var env = space.Environment ?? new S3Environment();
         if (sources.Meshes != null) sources.GroundMaterialId = env.GroundMaterial?.GetInstanceId() ?? 0;
@@ -128,6 +137,9 @@ public static class GlomeBaker
             {
                 var chart = anchor.ChartPose(radius);
                 options.OnAnchor?.Invoke(anchor, chart.Frame, chart.Pose);
+                if (anchor is S3GeodesicSpan3D span)
+                    ExtractSpan(span, radius, inheritedVisibility || options.Visibility == BakeVisibility.SelfVisible,
+                        options.Visibility, resolve, spanTemplates ??= [], surfaces, proxies, sources);
                 await VisitChart(anchor, anchor, chart.Frame, chart.Pose, inheritedVisibility);
             }
 
@@ -146,12 +158,26 @@ public static class GlomeBaker
                     }
 
                     var pose = child is Node3D node ? parentPose * node.Transform : parentPose;
-                    if (child is MeshInstance3D { Mesh: not null, Visible: true } mesh &&
-                        (childVisible || options.Visibility == BakeVisibility.SelfVisible))
+                    bool render = child is Node3D { Visible: true } && (childVisible || options.Visibility == BakeVisibility.SelfVisible);
+                    if ((render || child is CsgShape3D { UseCollision: true }) && GlomeMeshSource.Read(child) is { } source)
                     {
-                        ExtractSurfaces(mesh, pose, frame, resolve, surfaces, sources.Meshes?.Count ?? sources.Owners?.Count ?? -1);
-                        sources.Owners?.Add((Node3D?)owner ?? mesh);
-                        sources.Meshes?.Add(mesh);
+                        if (render)
+                        {
+                            int index;
+                            if (source.Node is MeshInstance3D mesh)
+                            {
+                                index = sources.Meshes?.Count ?? sources.Owners?.Count ?? -1;
+                                sources.Owners?.Add((Node3D?)owner ?? mesh);
+                                sources.Meshes?.Add(mesh);
+                            }
+                            else index = sources.AddEvaluated(source.Node, frame, pose, source.Mesh.GetAabb());
+                            ExtractSurfaces(source, pose, frame, resolve, surfaces, index);
+                        }
+                        if (source.CsgProxy(frame, pose) is { } solid)
+                        {
+                            proxies.Add(solid);
+                            sources.Proxies?.Add((source.Node, solid));
+                        }
                     }
                     if (child is Light3D { Visible: true } light && (childVisible || options.Visibility == BakeVisibility.SelfVisible) &&
                         GlomeLight.FromNode(light, frame, pose, radius) is { } record)
@@ -173,25 +199,25 @@ public static class GlomeBaker
         }
     }
 
-    private static void ExtractSurfaces(MeshInstance3D instance, Transform3D pose, S3Frame frame,
+    private static void ExtractSurfaces(GlomeMeshSource source, Transform3D pose, S3Frame frame,
         Func<Material?, SurfaceTag> resolveMaterial, List<MeshSurface> surfaces, int ownerIndex)
     {
         float determinant = pose.Basis.Determinant();
         if (determinant == 0) return;
-        var mesh = instance.Mesh;
+        var mesh = source.Mesh;
         for (int surface = 0; surface < mesh.GetSurfaceCount(); surface++)
         {
             var topology = Topology(mesh, surface);
             if (topology is not (Mesh.PrimitiveType.Triangles or Mesh.PrimitiveType.TriangleStrip)) continue;
             bool strip = topology == Mesh.PrimitiveType.TriangleStrip;
             using var arrays = mesh.SurfaceGetArrays(surface);
-            if (instance.Skin != null || arrays[(int)Mesh.ArrayType.Bones].VariantType != Variant.Type.Nil)
+            if (source.Node is MeshInstance3D { Skin: not null } || arrays[(int)Mesh.ArrayType.Bones].VariantType != Variant.Type.Nil)
                 NativeMaterialTable.Warn(mesh, "skinning");
             var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
             var normals = arrays[(int)Mesh.ArrayType.Normal].AsVector3Array();
             var uvs = arrays[(int)Mesh.ArrayType.TexUV].AsVector2Array();
             var indices = arrays[(int)Mesh.ArrayType.Index].AsInt32Array();
-            var material = instance.GetActiveMaterial(surface);
+            var material = source.MaterialAt(surface);
             var tag = resolveMaterial(material);
             var standard = material as BaseMaterial3D;
             Vector3 uvScale = standard?.Uv1Scale ?? Vector3.One, uvOffset = standard?.Uv1Offset ?? Vector3.Zero;
@@ -201,24 +227,41 @@ public static class GlomeBaker
 
     private static BakeResult BakeCore(BakeInputs inputs, Predicate<D4>? groundMask, GlomeBakeTimings? timing, CancellationToken cancellation = default)
     {
-        // Extraction has already copied the engine data. Each surface can now be
-        // projected independently. Concatenate in authored order to preserve hit and owner IDs.
+        // Partition by triangle count as well as by surface: a single authored mesh
+        // can otherwise leave only one worker busy at the end of a large bake.
         long start = Stopwatch.GetTimestamp();
-        var surfaces = inputs.Surfaces;
-        var batches = new GeodesicTriangle[surfaces.Length][];
-        Parallel.For(0, surfaces.Length, new ParallelOptions { CancellationToken = cancellation },
-            i => batches[i] = Project(surfaces[i], inputs.Radius));
-        int count = 0;
-        foreach (var batch in batches) count = checked(count + batch.Length);
-        var faces = new GeodesicTriangle[count];
-        var indices = inputs.TrackOwners ? new int[count] : null;
-        int first = 0;
-        for (int i = 0; i < batches.Length; i++)
+        const int batchSize = 512;
+        var batches = new List<(MeshSurface Surface, int First, int Count, int Destination)>();
+        int capacity = 0;
+        foreach (var surface in inputs.Surfaces)
+        {
+            int vertices = surface.Indices.Length == 0 ? surface.Vertices.Length : surface.Indices.Length;
+            int count = surface.Strip ? Math.Max(0, vertices - 2) : vertices / 3;
+            for (int first = 0; first < count; first += batchSize)
+                batches.Add((surface, first, Math.Min(batchSize, count - first), checked(capacity + first)));
+            capacity = checked(capacity + count);
+        }
+        var faces = new GeodesicTriangle[capacity];
+        var written = new int[batches.Count];
+        Parallel.For(0, batches.Count, new ParallelOptions { CancellationToken = cancellation }, i =>
         {
             var batch = batches[i];
-            batch.CopyTo(faces, first);
-            if (indices != null) Array.Fill(indices, surfaces[i].OwnerIndex, first, batch.Length);
-            first += batch.Length;
+            written[i] = Project(batch.Surface, inputs.Radius, batch.First, batch.Count, faces, batch.Destination);
+        });
+        // Compact rejected degenerates in authored order before assigning owner IDs.
+        int total = 0;
+        var indices = inputs.TrackOwners ? new int[capacity] : null;
+        for (int i = 0; i < batches.Count; i++)
+        {
+            var batch = batches[i];
+            if (total != batch.Destination) Array.Copy(faces, batch.Destination, faces, total, written[i]);
+            if (indices != null) Array.Fill(indices, batch.Surface.OwnerIndex, total, written[i]);
+            total += written[i];
+        }
+        if (total != capacity)
+        {
+            Array.Resize(ref faces, total);
+            if (indices != null) Array.Resize(ref indices, total);
         }
         cancellation.ThrowIfCancellationRequested();
         if (timing != null) timing.Project = GlomeBakeTimings.Since(start);
@@ -237,43 +280,55 @@ public static class GlomeBaker
 
     private static S3BakeSnapshot Publish(S3Space3D space, BakeInputs inputs, BakeResult result, Sources sources)
     {
-        var owners = sources.Owners == null ? null : Array.ConvertAll(result.OwnerIndices!, i => sources.Owners[i]);
+        var owners = sources.Owners == null ? null : Array.ConvertAll(result.OwnerIndices!,
+            i => i < 0 ? sources.Evaluated![~i].Node : sources.Owners[i]);
         var authoring = sources.Meshes == null ? null : new GlomeAuthoringSources(sources.Meshes.ToArray(),
-            result.OwnerIndices!, sources.Lights!.ToArray()) { Proxies = sources.Proxies!.ToArray(), GroundMaterialId = sources.GroundMaterialId };
+            result.OwnerIndices!, sources.Lights!.ToArray()) { Evaluated = sources.Evaluated!.ToArray(),
+                SpanTemplates = sources.SpanTemplates, Proxies = sources.Proxies!.ToArray(), GroundMaterialId = sources.GroundMaterialId };
         return space.Publish(result.Geometry, result.Collision, owners, inputs.Materials, inputs.Lights,
             inputs.Environment, sources.LightSources.ToArray(), authoring);
     }
 
-    private static GeodesicTriangle[] Project(MeshSurface surface, double radius)
+    private static int Project(MeshSurface surface, double radius, int first, int count,
+        GeodesicTriangle[] triangles, int destination)
     {
         var (vertices, normals, uvs, indices, frame, pose, uvScale, uvOffset, tag, strip, _) = surface;
         float determinant = pose.Basis.Determinant();
         Basis normalBasis = pose.Basis.Inverse().Transposed();
-        int count = indices.Length == 0 ? vertices.Length : indices.Length;
-        var triangles = new GeodesicTriangle[strip ? Math.Max(0, count - 2) : count / 3];
-        int written = 0;
-        for (int i = 0; i + 2 < count; i += strip ? 1 : 3)
+        bool vertexNormals = normals.Length == vertices.Length;
+        D4 LiftNormal(Vector3 authored, Vector3 face)
         {
-            int Index(int n) => indices.Length == 0 ? i + n : indices[i + n];
-            int a = Index(0), b = Index(1), c = Index(2);
+            var n = normalBasis * authored;
+            if (n.IsZeroApprox()) n = normalBasis * face;
+            return frame.Local(n.X, n.Y, n.Z);
+        }
+        ChartVertex Vertex(int j, D4 normal)
+        {
+            Vector3 p = pose * vertices[j];
+            Vector2 uv = uvs.Length == vertices.Length ? uvs[j] : new(p.X, p.Z);
+            return ChartVertex.Project(frame, radius, frame.Local(p.X, p.Y, p.Z), normal,
+                new(uv.X * uvScale.X + uvOffset.X, uv.Y * uvScale.Y + uvOffset.Y));
+        }
+        int written = destination;
+        for (int faceIndex = first; faceIndex < first + count; faceIndex++)
+        {
+            int i = strip ? faceIndex : faceIndex * 3;
+            int a = i, b = i + 1, c = i + 2;
+            if (indices.Length != 0) (a, b, c) = (indices[a], indices[b], indices[c]);
             if (strip && (i & 1) != 0) (a, b) = (b, a);
             Vector3 face = (vertices[c] - vertices[a]).Cross(vertices[b] - vertices[a]);
             if (face.LengthSquared() < 1e-13f) continue;
-            ChartVertex Vertex(int j)
-            {
-                Vector3 p = pose * vertices[j];
-                Vector3 n = normalBasis * (normals.Length == vertices.Length ? normals[j] : face);
-                if (n.IsZeroApprox()) n = normalBasis * face;
-                Vector2 uv = uvs.Length == vertices.Length ? uvs[j] : new(p.X, p.Z);
-                return ChartVertex.Project(frame, radius, frame.Local(p.X, p.Y, p.Z), frame.Local(n.X, n.Y, n.Z),
-                    new(uv.X * uvScale.X + uvOffset.X, uv.Y * uvScale.Y + uvOffset.Y));
-            }
             // A reflected transform reverses chart winding. Godot keeps the authored front face.
             if (determinant < 0 && (tag.Traversal & TraversalFlags.CullMask) != TraversalFlags.TwoSided) (b, c) = (c, b);
-            triangles[written++] = new(Vertex(a), Vertex(b), Vertex(c), tag.Material, tag.Surface, tag.Traversal);
+            var na = vertexNormals ? normals[a] : face;
+            var normalA = LiftNormal(na, face);
+            var normalB = !vertexNormals || na == normals[b] ? normalA : LiftNormal(normals[b], face);
+            var normalC = !vertexNormals || na == normals[c] ? normalA : LiftNormal(normals[c], face);
+            if (GeodesicTriangle.TryCreate(Vertex(a, normalA), Vertex(b, normalB), Vertex(c, normalC),
+                    tag.Material, tag.Surface, tag.Traversal) is { } triangle)
+                triangles[written++] = triangle;
         }
-        if (written != triangles.Length) Array.Resize(ref triangles, written);
-        return triangles;
+        return written - destination;
     }
 
     private static Mesh.PrimitiveType Topology(Mesh mesh, int surface)

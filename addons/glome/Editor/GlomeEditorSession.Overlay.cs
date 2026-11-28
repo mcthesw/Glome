@@ -53,16 +53,23 @@ internal sealed partial class GlomeEditorSession
         bool valid = GodotObject.IsInstanceValid(selected);
         _distortion.Visible = valid;
         _delta.Visible = drag != null;
+        if (drag != null) _delta.Text = $"Δarc = {_arcDelta:0.00} m  |  Δdeg = {double.RadiansToDegrees(_angleDelta):0.0}°";
         if (!valid) { _location.Text = space; return; }
-        var pivot = drag?.PreviewPivot ?? Pivot(selected!);
+        var pivot = _spanDrag?.Preview.Start ?? drag?.PreviewPivot ?? Pivot(selected!);
         double theta = pivot.P.AngleTo(D4.Pole);
         string placement = selected is S3Anchor3D anchor ? anchor.ChartPlacement.ToString() : selected!.GetClass().ToString();
         _location.Text = $"{selected!.Name}  |  {placement}  |  d = {r * theta:0.0} m  |  θ = {double.RadiansToDegrees(theta):0.0}°\n{space}";
+        if (selected is S3GeodesicSpan3D span)
+        {
+            var layout = SelectedSpan(span);
+            _distortion.Modulate = Colors.White;
+            _distortion.Text = $"L = {layout.Length:0.00} m  |  N = {layout.Bays}  |  {span.SegmentLength:0.##} m / bay";
+            return;
+        }
         bool warn = _extent.Distorted(r);
         _distortion.Modulate = warn ? Colors.Orange : Colors.White;
         _distortion.Text = $"Chart extent {_extent.ChartMetres:0.00} m  |  {_extent.Compression(r):0.0}% compression"
             + (warn ? "  |  Exceeds R/3" : "");
-        if (drag != null) _delta.Text = $"Δarc = {_arcDelta:0.00} m  |  Δdeg = {double.RadiansToDegrees(_angleDelta):0.0}°";
     }
 
     private void DrawPins()
