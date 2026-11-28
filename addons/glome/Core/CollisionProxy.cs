@@ -44,6 +44,8 @@ public sealed class CollisionProxy
         _solid = Boundary(0);
     }
 
+    internal ProxyBoundary Solid => _solid;
+
     private ProxyBoundary Boundary(double height) => new(_pole, _x, _y, _z, _half, height*_verticalScale, _round);
 
     private ProxyBoundary ForHeight(double height)

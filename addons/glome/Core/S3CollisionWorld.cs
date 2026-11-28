@@ -13,6 +13,7 @@ public sealed class S3CollisionWorld
     public double Radius { get; }
     public bool EquatorialGroundEnabled { get; }
     public int ProxyCount => _proxies.Length;
+    internal int ProxyRevision { get; private set; }
 
     public S3CollisionWorld(double radius, IEnumerable<CollisionProxy> proxies, bool equatorialGroundEnabled = true)
     {
@@ -22,6 +23,10 @@ public sealed class S3CollisionWorld
         _proxies = proxies.ToArray();
         _decks = Array.FindAll(_proxies, p => p.WalkableTop);
     }
+
+    public CapsuleWorld CreateCapsuleWorld(IEnumerable<CollisionFace>? surfaces = null,
+        Predicate<int>? includeProxy = null, Predicate<D4>? coversGround = null) =>
+        new(this, _proxies, includeProxy, surfaces, coversGround);
 
     public double SupportHeight(D4 ground, double ceiling) => SupportHeight(ground, ceiling, out _);
 
@@ -43,6 +48,7 @@ public sealed class S3CollisionWorld
     {
         var old = _proxies[id];
         _proxies[id] = replacement;
+        ProxyRevision++;
         if (old.WalkableTop || replacement.WalkableTop)
             _decks = Array.FindAll(_proxies, p => p.WalkableTop);
     }
