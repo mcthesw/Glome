@@ -35,3 +35,13 @@ D4 point = quarter.P; // (1, 0, 0, 0)
 | Core (pure C#) | Unit frames, geodesic triangles, spherical-cap BVH, swept collision, acoustic paths | `addons/glome/Core/` (`core/Glome.Core.csproj`) |
 | Godot adapters | Scene extraction, material/texture packing, shape adaptation, 3D audio rig | `GlomeBaker`, `CollisionShapeAdapter`, `S3AudioRig` |
 | Runtime & editor | GPU buffer packing, Vulkan compute renderer, automatic session, S³ editor screen | `GlomeBuffers`, `GlomeComputeRenderer`, `GlomeStandaloneSession`, `Glome.Editor` |
+
+## Oriented character queries
+
+Create a query world with `S3CollisionWorld.CreateCapsuleWorld()`. An `S3Capsule(radius, axisLength)` uses metres and takes the upper sphere centre as its pose. Use `Eye` and `Sole` to convert between eye and foot frames. `SweepCapsule` tests translation and rotation between two frames. `ResolveOverlap` handles an initially embedded capsule, and `FindFloor` returns walkable support beneath an oriented foot frame.
+
+`CharacterGround.StepUp` tests headroom, forward clearance and support before returning a new pose. Apply it only on success. For airborne motion, `S3Gravity.SampleAcceleration(position)` projects the chosen vertical onto the tangent space and returns acceleration in m/s².
+
+## Building larger BVHs
+
+`CapBvhBuilder.Build` batches triangle preparation and can partition large subtrees concurrently. Results retain serial preorder, escape indices and triangle-to-owner correspondence. Pass an owner array to enable parallel subtree writes. Other lists retain serial owner swaps. The reported 6.24× speedup applies to a BVH construction benchmark; it measures build time alone.

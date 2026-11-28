@@ -48,3 +48,15 @@ description: "在 S³ 主界面预览曲率、拾取几何、带撤销地移动�
 ## 自动化接口
 
 如需从工具脚本控制预览或热重载编辑器着色器，`GlomeEditorPlugin` 提供 `TryGetViewState`、`SetView`、`FocusNode`、`RequestRebake`、`CapturePreviewImage`、`ReloadPreviewShader` 及文件桥接配置（`BridgeDirectory` / `BridgeShaderReload`）。[编辑器扩展 API](/zh-cn/reference/resources-and-runtime/)
+
+## 用 CSG 开门洞
+
+在锚点下添加 Godot CSG 盒体，再添加一个 CSG 圆柱作为盒体的子节点。把圆柱的运算设为 **Subtraction**，移动圆柱使其穿过盒体。S³ 预览会烘焙根节点求值后的网格，保留切面及其材质。点选表面会选中 CSG 根节点。并集和交集也使用同一流程。
+
+开启 **Use Collision** 后，独立的普通圆柱生成可行走的圆柱代理。复合体按求值结果的局部包围盒生成盒形代理，门洞仍会挡住角色。要允许角色穿过门洞，可在 CSG 根节点下用启用的盒形或圆柱碰撞形状分别覆盖门柱和过梁，取代自动代理。
+
+## 沿测地线重复刚性构件
+
+添加 `S3GeodesicSpan3D`，将从 x = 0 沿 +X 方向制作的构件场景赋给 **Segment Scene**，并在 **Segment Length** 中填写构件长度（米）。**End Offset** 的方向表示起点标架中的初始朝向，其模长表示跨度（弧度）。改变世界半径会改变完整构件的数量。每段构件及其碰撞代理共享平行移动后的标架。
+
+**Whole Spans** 把可选端盖放在最后一段完整构件之后。**Trim Fill** 用单独的 **Fill Scene** 补足余长，并将端盖放在终点。选中跨度节点后，拖动 **Start** 或 **End** 即可预览。释放时编辑器重新烘焙，并记录一次可撤销的操作。终点位于对跖点时，可用中点手柄选择大圆平面。

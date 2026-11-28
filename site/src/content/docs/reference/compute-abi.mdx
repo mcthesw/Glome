@@ -28,7 +28,7 @@ import AbiRecordDiagram from '../../../components/diagrams/AbiRecordDiagram.astr
 | 14 | `linear_clamp` | `sampler` | linear mips | Linear filtering, clamp to edge |
 | Push | `Camera` | `push_constant` (`std430`) | `96 B` | Camera frame, lens, and dispatch dimensions (`camera`) |
 
-Workgroups are `8 × 8 × 1` (rounded up to cover the viewport, so check `camera.dims.xy` bounds). Unused texture banks bind a 1×1 white layer.
+Define `GLOME_WORKGROUP` before including the ABI to override the local X/Y sizes. Set `S3RenderProgram.WorkgroupSize` to the same pair. Default workgroups are `8 × 8 × 1` (rounded up to cover the viewport, so check `camera.dims.xy` bounds). Unused texture banks bind a 1×1 white layer.
 
 ## Record layouts
 

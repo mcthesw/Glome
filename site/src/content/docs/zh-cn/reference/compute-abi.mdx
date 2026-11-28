@@ -28,7 +28,7 @@ import AbiRecordDiagram from '../../../../components/diagrams/AbiRecordDiagram.a
 | 14 | `linear_clamp` | `sampler` | 线性 mip | 线性过滤，UV 钳制 |
 | 推送 | `Camera` | `push_constant`（`std430`） | `96 B` | 相机标架、镜头与调度尺寸（`camera`） |
 
-工作组为 `8 × 8 × 1`（按视口向上取整调度，边缘调用须检查 `camera.dims.xy`）。未使用的纹理库由 1×1 白色纹理填充。
+在包含 ABI 前定义 `GLOME_WORKGROUP` 可覆盖局部工作组的 X/Y 尺寸，并须将 `S3RenderProgram.WorkgroupSize` 设为同一对值。默认工作组为 `8 × 8 × 1`（按视口向上取整调度，边缘调用须检查 `camera.dims.xy`）。未使用的纹理库由 1×1 白色纹理填充。
 
 ## 记录字节布局
 

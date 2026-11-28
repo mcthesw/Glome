@@ -25,6 +25,7 @@ Types live in `Glome` unless noted as `Glome.Editor` or `Glome.Core`. [Custom ho
 | Property | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `Shader` | `RDShaderFile?` | `null` | Compute `.glsl` shader file (such as `cel.glsl`) |
+| `WorkgroupSize` | `Vector2I` | `(8, 8)` | Match the shader's local X/Y dimensions |
 | `SpecializationValues` | `int[]` | `[]` | One pipeline per integer for constant ID `0`; empty uses shader default |
 | `CaptureSet1` | `Func<ProgramBuffer[]>?` | `null` | Callback invoked on construction and `Rebuild`; array index is Set 1 binding |
 

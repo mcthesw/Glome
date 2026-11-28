@@ -25,6 +25,7 @@ description: "S3Environment、S3RenderProgram、GlomeBaker、GlomeBuffers、Glom
 | 属性 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `Shader` | `RDShaderFile?` | `null` | 选择带 `#[compute]` 的 `.glsl` 文件（如 `cel.glsl`） |
+| `WorkgroupSize` | `Vector2I` | `(8, 8)` | 与着色器声明的局部工作组 X/Y 尺寸一致 |
 | `SpecializationValues` | `int[]` | `[]` | 每个整数为常量 ID `0` 编译一条管线；留空使用着色器默认值 |
 | `CaptureSet1` | `Func<ProgramBuffer[]>?` | `null` | 构造与 `Rebuild` 时回调，数组下标对应 Set 1 绑定号 |
 

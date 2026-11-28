@@ -48,3 +48,15 @@ The Inspector displays **Farthest vertex**, **Chart angle**, and **Radial compre
 ## Automation hooks
 
 For automated preview inspection or custom editor shaders, `GlomeEditorPlugin` exposes `TryGetViewState`, `SetView`, `FocusNode`, `RequestRebake`, `CapturePreviewImage`, `ReloadPreviewShader`, and the file-polled `GlomeEditorBridge` (`BridgeDirectory` / `BridgeShaderReload`). [Editor extension API](/reference/resources-and-runtime/)
+
+## Cut an opening with CSG
+
+Place a Godot CSG box under an anchor and add a CSG cylinder as its child. Set the cylinder's operation to **Subtraction** and move it through the box. The S³ preview bakes the evaluated root mesh, including the cut surfaces and their materials. Picking a surface selects the root. Union and intersection use the same workflow.
+
+With **Use Collision** enabled, a standalone cylinder gets a walkable cylinder proxy. A compound gets a box around its evaluated local bounds, so the opening still blocks movement. To make a doorway traversable, place enabled box or cylinder collision shapes around its jambs and lintel under the CSG root. These replace the automatic proxy.
+
+## Repeat rigid bays along a geodesic
+
+Add an `S3GeodesicSpan3D` and assign a **Segment Scene** authored along +X, starting at x = 0. Set **Segment Length** to its length in metres. **End Offset** gives the initial direction in the start frame and the angular length in radians. Changing world radius changes the number of bays. Each bay and its collision proxies use a parallel-transported frame.
+
+**Whole Spans** puts the optional end cap after the last full bay. **Trim Fill** uses a separate **Fill Scene** for the remainder and places the cap at the endpoint. Select the span and drag **Start** or **End** to preview the new layout. The editor rebakes on release and records one undo action. At the antipode, the midpoint handle selects the great-circle plane.

@@ -35,3 +35,13 @@ D4 point = quarter.P; // (1, 0, 0, 0)
 | 核心层（纯 C#） | 单位标架、测地三角形、球冠 BVH、扫掠碰撞与双声路 | `addons/glome/Core/`（`core/Glome.Core.csproj`） |
 | Godot 适配层 | 场景提取、材质与纹理打包、碰撞形状适配与 3D 音频节点 | `GlomeBaker`、`CollisionShapeAdapter`、`S3AudioRig` |
 | 运行时与编辑器 | GPU 缓冲打包、Vulkan 计算渲染器、自动会话与 S³ 编辑器主屏 | `GlomeBuffers`、`GlomeComputeRenderer`、`GlomeStandaloneSession`、`Glome.Editor` |
+
+## 有朝向的角色查询
+
+用 `S3CollisionWorld.CreateCapsuleWorld()` 创建查询世界。`S3Capsule(radius, axisLength)` 以米为单位，姿态原点是上端球心。用 `Eye` 和 `Sole` 在眼部与脚底标架之间转换。`SweepCapsule` 检测两个标架之间的平移与旋转，`ResolveOverlap` 处理起始穿透，`FindFloor` 沿脚底标架查询可行走支撑面。
+
+`CharacterGround.StepUp` 依次检查头顶余量、向前移动的净空和落脚支撑。成功时再应用返回的姿态。空中运动可调用 `S3Gravity.SampleAcceleration(position)`，将指定竖直方向投影到当前位置的切空间，得到以 m/s² 为单位的加速度。
+
+## 构建大型 BVH
+
+`CapBvhBuilder.Build` 分批预处理三角形，并可并行划分大型子树。输出保留串行先序、跳转索引和三角形与所有者的对应关系。传入所有者数组可启用并行子树写入，其他列表保持串行交换顺序。已报告的 6.24 倍加速来自 BVH 构建基准，计时范围仅为构建阶段。
