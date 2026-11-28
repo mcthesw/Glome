@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading.Tasks;
 
 namespace Glome.Core;
 
@@ -10,6 +11,7 @@ public readonly record struct CapNode(SphericalCap Cap, int First, int Count, in
 public static class CapBvhBuilder
 {
     private const int BinCount = 12;
+    private const int ScanBatch = 2048;
     private readonly record struct Hull(Vector4 Min, Vector4 Max)
     {
         public static Hull Empty => new(new(float.PositiveInfinity), new(float.NegativeInfinity));
@@ -52,27 +54,30 @@ public static class CapBvhBuilder
     public static CapNode[] Build<T>(GeodesicTriangle[] triangles, IList<T> owners)
     {
         if (owners.Count != triangles.Length) throw new ArgumentException("Expected one owner per triangle.", nameof(owners));
-        return Build(triangles, new Permutation<T>(owners));
+        // Only arrays permit concurrent writes to disjoint slices. Preserve the
+        // original sequence of owner swaps on the caller thread for other lists.
+        return Build(triangles, new Permutation<T>(owners), parallelSubtrees: owners is T[]);
     }
-    private static CapNode[] Build<TPermutation>(GeodesicTriangle[] triangles, TPermutation owners)
+    private static CapNode[] Build<TPermutation>(GeodesicTriangle[] triangles, TPermutation owners, bool parallelSubtrees = true)
         where TPermutation : struct, IPermutation
     {
-        static Vector4 Point(D4 p) => new((float)p.X, (float)p.Y, (float)p.Z, (float)p.W);
+        if (triangles.Length == 0) return [];
         var items = new Item[triangles.Length];
-        for (int i = 0; i < items.Length; i++)
-        {
-            var t = triangles[i];
-            items[i] = new(t, Point(t.Cap.Center), Hull.Empty.Add(Point(t.A.V)).Add(Point(t.B.V)).Add(Point(t.C.V)));
-        }
-        var nodes = new List<CapNode>();
-        if (items.Length > 0) Partition(0, items.Length);
+        if (items.Length < ScanBatch) PrepareItems(triangles, items, 0, items.Length);
+        else Parallel.For(0, (items.Length + ScanBatch - 1) / ScanBatch,
+            b => PrepareItems(triangles, items, b * ScanBatch, Math.Min(items.Length, (b + 1) * ScanBatch)));
+        var nodes = new List<CapNode>(items.Length / 2);
+        Partition(0, items.Length, nodes, parallelSubtrees ? BitOperations.Log2((uint)Environment.ProcessorCount) : 0);
         for (int i = 0; i < items.Length; i++) triangles[i] = items[i].Triangle;
-        return nodes.ToArray();
+        var result = nodes.ToArray();
+        for (int i = 0; i < result.Length; i++)
+            result[i] = result[i] with { Escape = i + result[i].Escape };
+        return result;
 
-        void Partition(int first, int count)
+        void Partition(int first, int count, List<CapNode> output, int parallelDepth)
         {
-            int slot = nodes.Count;
-            nodes.Add(default);
+            int slot = output.Count;
+            output.Add(default);
             Hull bounds = Hull.Empty, centers = Hull.Empty;
             for (int i = first; i < first + count; i++)
             {
@@ -82,14 +87,22 @@ public static class CapBvhBuilder
             var cap = Enclose(items, first, count, bounds);
             if (count <= 6)
             {
-                nodes[slot] = new(cap, first, count, nodes.Count);
+                output[slot] = new(cap, first, count, 1);
                 return;
             }
             int split = Split(items, first, count, centers, owners);
-            Partition(first, split - first);
-            Partition(split, first + count - split);
-            var left = nodes[slot + 1];
-            var right = nodes[left.Escape];
+            int leftCount = split - first, rightCount = count - leftCount;
+            if (parallelDepth > 0 && count >= 4096 && Math.Min(leftCount, rightCount) >= 512)
+            {
+                PartitionPair(first, leftCount, rightCount, output, parallelDepth - 1);
+            }
+            else
+            {
+                Partition(first, leftCount, output, parallelDepth);
+                Partition(split, rightCount, output, parallelDepth);
+            }
+            var left = output[slot + 1];
+            var right = output[slot + 1 + left.Escape];
             // For an isotropic great circle on S3 the probability of intersecting a
             // positive cap is sin(alpha)^2. Keep one leaf when visiting both caps
             // costs more than the triangle tests they are expected to eliminate.
@@ -97,14 +110,35 @@ public static class CapBvhBuilder
                 (count - 2) * HitProbability(cap) <=
                 left.Count * HitProbability(left.Cap) + right.Count * HitProbability(right.Cap))
             {
-                nodes.RemoveRange(slot + 1, 2);
-                nodes[slot] = new(cap, first, count, slot + 1);
+                output.RemoveRange(slot + 1, 2);
+                output[slot] = new(cap, first, count, 1);
             }
-            else nodes[slot] = new(cap, 0, 0, nodes.Count);
+            else output[slot] = new(cap, 0, 0, output.Count - slot);
+        }
+
+        void PartitionPair(int first, int leftCount, int rightCount, List<CapNode> output, int depth)
+        {
+            // Relative escape offsets make each subtree relocatable. Appending in
+            // preorder reproduces the serial tree regardless of worker completion order.
+            var sibling = new List<CapNode>(rightCount / 2);
+            Parallel.Invoke(() => Partition(first, leftCount, output, depth),
+                            () => Partition(first + leftCount, rightCount, sibling, depth));
+            output.AddRange(sibling);
         }
     }
 
     private static double HitProbability(SphericalCap cap) => cap.CosAlpha > 0 ? 1 - cap.CosAlpha * cap.CosAlpha : 1;
+
+    private static void PrepareItems(GeodesicTriangle[] triangles, Item[] items, int first, int end)
+    {
+        static Vector4 Point(D4 p) => new((float)p.X, (float)p.Y, (float)p.Z, (float)p.W);
+        for (int i = first; i < end; i++)
+        {
+            var t = triangles[i];
+            var a = Point(t.A.V);
+            items[i] = new(t, Point(t.Cap.Center), new Hull(a, a).Add(Point(t.B.V)).Add(Point(t.C.V)));
+        }
+    }
 
     // A positive cap containing all corners contains their normalized positive combinations.
     // Compute it directly to avoid accumulating the slack of nested enclosing spheres.
@@ -114,33 +148,49 @@ public static class CapBvhBuilder
         D4 center = new(mid.X, mid.Y, mid.Z, mid.W);
         if (center.Length < 1e-10) return SphericalCap.Full;
         center = center.Unit();
+        double k = count < 8 * ScanBatch ? CornerMinimum(items, center, first, first + count)
+            : ParallelCornerMinimum(items, center, first, count);
+        return k > 0 ? new(center, k - 2e-14) : SphericalCap.Full;
+    }
+
+    private static double ParallelCornerMinimum(Item[] items, D4 center, int first, int count)
+    {
+        var minima = new double[(count + ScanBatch - 1) / ScanBatch];
+        Parallel.For(0, minima.Length, b => minima[b] = CornerMinimum(items, center, first + b * ScanBatch,
+            first + Math.Min((b + 1) * ScanBatch, count)));
         double k = 1;
-        for (int i = first; i < first + count; i++)
+        foreach (double minimum in minima) k = Math.Min(k, minimum);
+        return k;
+    }
+
+    private static double CornerMinimum(Item[] items, D4 center, int first, int end)
+    {
+        double k = 1;
+        for (int i = first; i < end; i++)
         {
             var t = items[i].Triangle;
             k = Math.Min(k, Math.Min(center.Dot(t.A.V), Math.Min(center.Dot(t.B.V), center.Dot(t.C.V))));
         }
-        return k > 0 ? new(center, k - 2e-14) : SphericalCap.Full;
+        return k;
     }
 
     private static int Split<TPermutation>(Item[] items, int first, int count, Hull centers, TPermutation owners)
         where TPermutation : struct, IPermutation
     {
-        Span<Bin> bins = stackalloc Bin[BinCount];
+        // Bin the four candidate axes in one pass over the triangle bounds.
+        Span<Bin> allBins = stackalloc Bin[4 * BinCount];
+        allBins.Clear();
+        var widths = centers.Max - centers.Min;
+        var scales = new Vector4(BinCount) / Vector4.Max(widths, new Vector4(1e-9f));
+        if (count < 8 * ScanBatch) BinItems(items, first, first + count, centers.Min, scales, allBins);
+        else ParallelBins(items, first, count, centers.Min, scales, allBins);
         Span<float> rightCost = stackalloc float[BinCount];
         float best = float.PositiveInfinity, threshold = 0;
         int bestAxis = -1;
         for (int axis = 0; axis < 4; axis++)
         {
-            float min = centers.Min[axis], width = centers.Max[axis] - min;
-            if (width < 1e-9f) continue;
-            bins.Clear();
-            float scale = BinCount / width;
-            for (int i = first; i < first + count; i++)
-            {
-                int bin = Math.Clamp((int)((items[i].Center[axis] - min) * scale), 0, BinCount - 1);
-                bins[bin].Add(items[i].Bounds, 1);
-            }
+            if (widths[axis] < 1e-9f) continue;
+            var bins = allBins.Slice(axis * BinCount, BinCount);
             Bin right = default, left = default;
             for (int b = BinCount - 1; b > 0; b--)
             {
@@ -154,7 +204,7 @@ public static class CapBvhBuilder
                 if (cost >= best) continue;
                 best = cost;
                 bestAxis = axis;
-                threshold = min + b / scale;
+                threshold = centers.Min[axis] + b / scales[axis];
             }
         }
         int split = first;
@@ -169,5 +219,31 @@ public static class CapBvhBuilder
             }
         }
         return split > first && split < first + count ? split : first + count / 2;
+    }
+
+    private static void ParallelBins(Item[] items, int first, int count, Vector4 min, Vector4 scales, Span<Bin> bins)
+    {
+        int batches = (count + ScanBatch - 1) / ScanBatch;
+        var partial = new Bin[batches * 4 * BinCount];
+        Parallel.For(0, batches, b => BinItems(items, first + b * ScanBatch,
+            first + Math.Min((b + 1) * ScanBatch, count), min, scales,
+            partial.AsSpan(b * 4 * BinCount, 4 * BinCount)));
+        for (int start = 0; start < partial.Length; start += bins.Length)
+        for (int j = 0; j < bins.Length; j++)
+            bins[j].Add(partial[start + j].Bounds, partial[start + j].Count);
+    }
+
+    private static void BinItems(Item[] items, int first, int end, Vector4 min, Vector4 scales, Span<Bin> bins)
+    {
+        var last = new Vector4(BinCount - 1);
+        for (int i = first; i < end; i++)
+        {
+            ref readonly var item = ref items[i];
+            var bin = Vector4.Clamp((item.Center - min) * scales, Vector4.Zero, last);
+            bins[(int)bin.X].Add(item.Bounds, 1);
+            bins[BinCount + (int)bin.Y].Add(item.Bounds, 1);
+            bins[2 * BinCount + (int)bin.Z].Add(item.Bounds, 1);
+            bins[3 * BinCount + (int)bin.W].Add(item.Bounds, 1);
+        }
     }
 }

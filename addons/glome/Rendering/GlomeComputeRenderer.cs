@@ -32,6 +32,7 @@ public sealed class GlomeComputeRenderer : IDisposable
     private RD.UniformType[] _programTypes = [];
     private readonly Rid[] _pipelines;
     private readonly int[] _specializations;
+    private readonly Vector2I _workgroup;
     private Vector2I _size, _spareSize;
     private Rid _spareImage, _spareSet;
     private bool _failed;
@@ -53,6 +54,9 @@ public sealed class GlomeComputeRenderer : IDisposable
                                 byte[]? probes = null, bool capture = false, string timingPrefix = "")
     {
         _program = program ?? new GlomeStandardProgram();
+        _workgroup = _program.WorkgroupSize;
+        if (_workgroup.X <= 0 || _workgroup.Y <= 0)
+            throw new ArgumentOutOfRangeException(nameof(program), "Compute workgroup dimensions must be positive.");
         var spirv = _program.GetComputeSpirV();
         if (program is { CaptureSet1: null }) _staticShaderCode = spirv.BytecodeCompute;
         _specializations = (int[])_program.SpecializationValues.Clone();
@@ -90,7 +94,7 @@ public sealed class GlomeComputeRenderer : IDisposable
     // shader or a changed specialization still needs a new pipeline.
     internal bool CanReuseStaticProgram(S3RenderProgram program) =>
         _staticShaderCode != null && ReferenceEquals(_program, program) && program.CaptureSet1 == null &&
-        _specializations.AsSpan().SequenceEqual(program.SpecializationValues) &&
+        _workgroup == program.WorkgroupSize && _specializations.AsSpan().SequenceEqual(program.SpecializationValues) &&
         _staticShaderCode.AsSpan().SequenceEqual(program.GetComputeSpirV().BytecodeCompute);
 
     private static Rid Valid(Rid rid, string resource) =>
@@ -416,7 +420,8 @@ public sealed class GlomeComputeRenderer : IDisposable
             _rd.ComputeListSetPushConstant(list, push, (uint)push.Length);
             uint w = (uint)(probeCount == 0 ? _size.X : probeCount);
             uint h = (uint)(probeCount == 0 ? _size.Y : 1);
-            _rd.ComputeListDispatch(list, (w + 7) / 8, (h + 7) / 8, 1);
+            uint groupX = (uint)_workgroup.X, groupY = (uint)_workgroup.Y;
+            _rd.ComputeListDispatch(list, (w + groupX - 1) / groupX, (h + groupY - 1) / groupY, 1);
             _rd.ComputeListEnd();
             if (marker is not null) _rd.CaptureTimestamp(marker + "_end");
             if (probeCount == 0) return;

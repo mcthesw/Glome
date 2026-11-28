@@ -1,5 +1,6 @@
 #[compute]
 #version 450
+#define GLOME_WORKGROUP local_size_x = 16, local_size_y = 4
 #include "res://addons/glome/Shaders/glome_abi.glslinc"
 #include "res://addons/glome/Shaders/glome_camera.glslinc"
 #include "res://addons/glome/Shaders/glome_intersections.glslinc"

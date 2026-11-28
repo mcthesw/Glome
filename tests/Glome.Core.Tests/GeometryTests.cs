@@ -83,6 +83,23 @@ public sealed class GeometryTests
     }
 
     [TestMethod]
+    public void ParallelSubtreesPreserveSerialNodeOrderAndOwnerPermutation()
+    {
+        var parallelFaces = Enumerable.Range(0, 8192)
+            .Select(i => Face(i % 127 - 63, 2 + i % 31, i)).ToArray();
+        var serialFaces = parallelFaces.ToArray();
+        var parallelOwners = parallelFaces.Select(f => f.Material).ToArray();
+        var serialOwners = parallelOwners.ToList();
+
+        var serial = CapBvhBuilder.Build(serialFaces, serialOwners);
+        var parallel = CapBvhBuilder.Build(parallelFaces, parallelOwners);
+
+        CollectionAssert.AreEqual(serial, parallel);
+        CollectionAssert.AreEqual(serialOwners.ToArray(), parallelOwners);
+        CollectionAssert.AreEqual(parallelOwners, parallelFaces.Select(f => f.Material).ToArray());
+    }
+
+    [TestMethod]
     public void TraceRespectsAngularIntervalTiesAndFilters()
     {
         var near = Face(0, 3);

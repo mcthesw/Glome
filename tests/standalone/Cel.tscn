@@ -7,6 +7,7 @@
 [sub_resource type="Resource" id="Program"]
 script = ExtResource("2")
 Shader = ExtResource("3")
+WorkgroupSize = Vector2i(16, 4)
 
 [node name="CelGallery" instance=ExtResource("1")]
 RenderProgram = SubResource("Program")

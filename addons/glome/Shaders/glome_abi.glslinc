@@ -1,4 +1,7 @@
-layout(local_size_x = 8, local_size_y = 8) in;
+#ifndef GLOME_WORKGROUP
+#define GLOME_WORKGROUP local_size_x = 8, local_size_y = 8
+#endif
+layout(GLOME_WORKGROUP) in;
 layout(rgba8, set = 0, binding = 0) uniform writeonly image2D output_image;
 struct Triangle {
     vec4 plane, dual0, dual1, dual2;

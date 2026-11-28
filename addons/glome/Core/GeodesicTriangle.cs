@@ -28,17 +28,39 @@ public sealed class GeodesicTriangle
 
     public GeodesicTriangle(ChartVertex a, ChartVertex b, ChartVertex c, int material, int? surface = null,
                             TraversalFlags traversal = TraversalFlags.TwoSided)
+        : this(a,b,c,material,surface ?? material,traversal, Tangents(a.V,b.V,c.V) ??
+            throw new ArgumentException("Projected triangle has zero area.")) { }
+
+    internal static GeodesicTriangle? TryCreate(in ChartVertex a, in ChartVertex b, in ChartVertex c, int material,
+        int surface, TraversalFlags traversal) => Tangents(a.V,b.V,c.V) is { } edges
+        ? new(a,b,c,material,surface,traversal,edges) : null;
+
+    private readonly record struct Edges(D4 U, D4 V, double Width, double Offset, double Height);
+
+    private static Edges? Tangents(D4 a, D4 b, D4 c)
     {
-        (A, B, C, Material) = (a, b, c, material);
-        Surface = surface ?? material;
-        Traversal = traversal;
-        D4 e = (b.V - a.V).Reject(a.V), f = (c.V - a.V).Reject(a.V);
+        D4 e = (b - a).Reject(a), f = (c - a).Reject(a);
         // QR of the two edges avoids subtracting nearly equal Gram determinants.
-        D4 u = e.Unit(), remainder = f.Reject(u);
-        D4 v = remainder.Unit();
-        Plane = D4.Hodge(a.V, u, v).Unit();
-        Dual2 = v / f.Dot(v);
-        Dual1 = (u - Dual2 * f.Dot(u)) / e.Length;
+        // A CSG sliver can lose its last distinct vertex in the affine transform.
+        // Test the projected edges, where both rendering and picking consume them.
+        double width = e.Length;
+        if (width <= 1e-15) return null;
+        D4 u = e / width;
+        double offset = f.Dot(u);
+        var remainder = f - u * offset;
+        double height = remainder.Length;
+        if (height <= Math.Max(1e-15, f.Length * 1e-12)) return null;
+        var v = remainder / height;
+        return new(u, v, width, offset, f.Dot(v));
+    }
+
+    private GeodesicTriangle(in ChartVertex a, in ChartVertex b, in ChartVertex c, int material, int surface,
+        TraversalFlags traversal, Edges edges)
+    {
+        (A, B, C, Material, Surface, Traversal) = (a, b, c, material, surface, traversal);
+        Plane = D4.Hodge(a.V, edges.U, edges.V).Unit();
+        Dual2 = edges.V / edges.Height;
+        Dual1 = (edges.U - Dual2 * edges.Offset) / edges.Width;
         Dual0 = a.V - Dual1 * a.V.Dot(b.V) - Dual2 * a.V.Dot(c.V);
         Cap = SphericalCap.Around(a.V, b.V, c.V);
     }

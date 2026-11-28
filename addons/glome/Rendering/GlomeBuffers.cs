@@ -2,6 +2,7 @@
 using System;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Glome.Core;
 using Godot;
 
@@ -123,11 +124,28 @@ public sealed record GlomeBuffers(byte[] Triangles, byte[] Nodes, byte[] Materia
                                     EnvironmentBlock environment, TextureBank[] banks)
     {
         if (materials.Length == 0 || banks.Length > 4) throw new ArgumentException("Invalid material table or bank count.");
-        var triangles = new byte[Math.Max(1, geometry.Triangles.Length) * 160];
-        var faces = MemoryMarshal.Cast<byte, TriangleRecord>(triangles.AsSpan());
-        for (int i = 0; i < geometry.Triangles.Length; i++)
+        var source = geometry.Triangles;
+        var triangles = source.Length == 0 ? new byte[160] : GC.AllocateUninitializedArray<byte>(checked(source.Length * 160));
+        const int batch = 1024;
+        if (source.Length <= batch) PackFaces(source, triangles, 0, source.Length);
+        else Parallel.For(0, (source.Length + batch - 1) / batch,
+            i => PackFaces(source, triangles, i * batch, Math.Min((i + 1) * batch, source.Length)));
+        var nodes = new byte[Math.Max(1, geometry.Nodes.Length) * 32];
+        var caps = MemoryMarshal.Cast<byte, CapRecord>(nodes.AsSpan());
+        for (int i = 0; i < geometry.Nodes.Length; i++)
         {
-            var t = geometry.Triangles[i];
+            var n = geometry.Nodes[i];
+            caps[i] = new() { Center = Vec(n.Cap.Center), Bounds = new((float)n.Cap.CosAlpha, n.First, n.Count, n.Escape) };
+        }
+        return new(triangles, nodes, MemoryMarshal.AsBytes(materials.AsSpan()).ToArray(), lights, environment, banks);
+    }
+
+    private static void PackFaces(GeodesicTriangle[] source, byte[] bytes, int start, int end)
+    {
+        var faces = MemoryMarshal.Cast<byte, TriangleRecord>(bytes.AsSpan());
+        for (int i = start; i < end; i++)
+        {
+            var t = source[i];
             faces[i] = new()
             {
                 Plane = Vec(t.Plane), Dual0 = Vec(t.Dual0), Dual1 = Vec(t.Dual1), Dual2 = Vec(t.Dual2),
@@ -137,13 +155,5 @@ public sealed record GlomeBuffers(byte[] Triangles, byte[] Nodes, byte[] Materia
                 N0 = Vec(t.A.Normal), N1 = Vec(t.B.Normal), N2 = Vec(t.C.Normal)
             };
         }
-        var nodes = new byte[Math.Max(1, geometry.Nodes.Length) * 32];
-        var caps = MemoryMarshal.Cast<byte, CapRecord>(nodes.AsSpan());
-        for (int i = 0; i < geometry.Nodes.Length; i++)
-        {
-            var n = geometry.Nodes[i];
-            caps[i] = new() { Center = Vec(n.Cap.Center), Bounds = new((float)n.Cap.CosAlpha, n.First, n.Count, n.Escape) };
-        }
-        return new(triangles, nodes, MemoryMarshal.AsBytes(materials.AsSpan()).ToArray(), lights, environment, banks);
     }
 }
